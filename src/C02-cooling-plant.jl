@@ -9,10 +9,14 @@ begin
 	@info "Loading packages..."
 
 	using CairoMakie
+	# using Clapeyron
 	using ModelingToolkit
 	using PlutoUI
+	using Polynomials
+	using Psychro
 	using Statistics
 	using SteamTables
+	using Thermodynamics
 	using Unitful
 end
 
@@ -23,21 +27,13 @@ md"""
 $(TableOfContents())
 """
 
-# ╔═╡ bc62a1d5-aeb2-4bec-a22d-15499f54056f
-begin
-	V̇0 = 2.0u"m^3/hr"
-		
-	T1 = 20u"°C"
-	T2 = 40u"°C"
+# ╔═╡ 8e00b0b8-09d4-4687-ac87-a0b80ae69fdf
 
-	T = [T1; T2]
-	ρ0 = 1.0 / SpecificV(101325.0u"Pa", T[1])
 
-	H = map(x->SpecificH(101325.0u"Pa", x), T)
-	Q̇ = uconvert(u"kW", ρ0 * V̇0 * diff(H)[1]) 
-end
+# ╔═╡ 7f886558-9884-436f-9a96-a56517799eab
 
-# ╔═╡ 694b2733-2715-45b9-a153-4addc1f88e52
+
+# ╔═╡ 32785360-d117-4986-ac65-6e6c5dfdef95
 
 
 # ╔═╡ ed994cb4-553d-4ec5-b36d-fa30d46373c8
@@ -45,16 +41,94 @@ md"""
 ## Implementation
 """
 
+# ╔═╡ b99a067e-e166-4e75-a538-5c6d5334a25e
+"Ideal gas constant [J/(mol.K)]."
+const RGAS::Float64 = 8.314_462_618_153_24
+
+# ╔═╡ 043062dc-dfda-4c33-a35f-95cd2a2c78a0
+"Reference atmospheric pressure [Pa]."
+const PREF::Float64 = 101325.0
+
 # ╔═╡ e6f4b40c-a3b4-4da7-a252-085724901e8d
-abstract type AbstractMaterial end
+begin
+	abstract type AbstractMaterial end
+	
+	abstract type AbstractLiquidMaterial <: AbstractMaterial end
+	
+	abstract type AbstractSolidMaterial <: AbstractMaterial end
+
+	abstract type AbstractGasMaterial <: AbstractMaterial end
+end
 
 # ╔═╡ 31717fa3-09dd-4ebc-8a08-f485b5216b11
-struct SolidMaterial <: AbstractMaterial
+struct Clinker <: AbstractSolidMaterial
+	ρ::Float64
+	c::Polynomial
+end
+
+# ╔═╡ 71c95469-a9d8-4bc0-919f-c56228e72264
+struct Water <: AbstractLiquidMaterial
 end
 
 # ╔═╡ c53fa179-986b-46b4-8c88-ccdb4378e99f
-struct GasMaterial <: AbstractMaterial
-	cₚ
+struct Air <: AbstractGasMaterial
+	M̄::Float64
+	c::Polynomial
+
+	function Air()
+		new(0.0289647,  )
+	end
+end
+
+# ╔═╡ fb68d662-30ed-4191-a634-b34192210bf0
+begin
+	density(mat::AbstractMaterial, T, P) = error("Not implemented")
+	
+	density(mat::Clinker, T, P) = mat.ρ
+	
+	density(mat::Water, T, P) = 1.0 / SpecificV(P, T)
+	
+	density(mat::Air, T, P) = (P * mat.M̄) / (RGAS * T)
+	
+	@doc "Evaluates the density of material [kg/m³]."
+	density
+end
+
+# ╔═╡ bc62a1d5-aeb2-4bec-a22d-15499f54056f
+begin
+	water = Water()
+	
+	V̇ = 2.0u"m^3/hr"
+	
+	T = [20u"°C"; 40u"°C"]
+	
+	ρ = density(water, T[1], PREF * u"Pa")
+	
+	H = map(x->SpecificH(PREF * u"Pa", x), T)
+	
+	Q̇ = uconvert(u"kW", ρ * V̇ * diff(H)[1]) 
+end
+
+# ╔═╡ dae005f2-8b15-47ae-8170-e56e43b74996
+"Create air enthalpy function for given pressure and dew point."
+function get_air_enthalpy_function(; P = 1.0u"atm", D = 0.0u"°C")
+	return x->enthalpy(MoistAir, x, DewPoint, D, P)
+end
+
+# ╔═╡ 694b2733-2715-45b9-a153-4addc1f88e52
+let
+	h = get_air_enthalpy_function()
+	T = LinRange(0.0u"°C", 200.0u"°C", 1000)
+	H = h.(T)
+
+	hf = fit(ustrip(T), ustrip(H), 2; var = :T)
+	
+	f = Figure(size = (700, 400))
+	ax = Axis(f[1, 1])
+	lines!(ax, ustrip(T), ustrip(H))
+	# lines!(ax, ustrip(T), hf(ustrip(T)))
+	f
+	hf(10)
 end
 
 # ╔═╡ e1c94f16-9d56-4965-86d1-abfc19195b87
@@ -92,15 +166,21 @@ PLUTO_PROJECT_TOML_CONTENTS = """
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 ModelingToolkit = "961ee093-0014-501f-94e3-6117800e7a78"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+Polynomials = "f27b6e38-b328-58d1-80ce-0feddd5e7a45"
+Psychro = "9516f557-4a54-5a79-b954-c272e753c77a"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 SteamTables = "43dc94dd-f011-5c5d-8ab2-5073432dc0ba"
+Thermodynamics = "b60c26fb-14c3-4610-9d3e-2d17fe7ff00c"
 Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [compat]
 CairoMakie = "~0.11.5"
 ModelingToolkit = "~8.75.0"
 PlutoUI = "~0.7.54"
+Polynomials = "~4.0.6"
+Psychro = "~0.3.0"
 SteamTables = "~1.4.1"
+Thermodynamics = "~0.11.2"
 Unitful = "~1.19.0"
 """
 
@@ -110,7 +190,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.9.3"
 manifest_format = "2.0"
-project_hash = "8f42caec7f80cddbc1487daf0aef5933cef3774c"
+project_hash = "afceec3ac7aa14a4178248559a42d4f323368925"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "41c37aa88889c171f1300ceac1313c06e891d245"
@@ -229,6 +309,12 @@ weakdeps = ["SparseArrays"]
 
 [[deps.Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
+
+[[deps.Atomix]]
+deps = ["UnsafeAtomics"]
+git-tree-sha1 = "c06a868224ecba914baa6942988e2f2aade419be"
+uuid = "a9b6321e-bd34-4604-b9c9-b65b8de01458"
+version = "0.1.0"
 
 [[deps.Automa]]
 deps = ["PrecompileTools", "TranscodingStreams"]
@@ -1088,6 +1174,16 @@ git-tree-sha1 = "884c2968c2e8e7e6bf5956af88cb46aa745c854b"
 uuid = "ef3ab10e-7fda-4108-b977-705223b18434"
 version = "0.4.1"
 
+[[deps.KernelAbstractions]]
+deps = ["Adapt", "Atomix", "InteractiveUtils", "LinearAlgebra", "MacroTools", "PrecompileTools", "Requires", "SparseArrays", "StaticArrays", "UUIDs", "UnsafeAtomics", "UnsafeAtomicsLLVM"]
+git-tree-sha1 = "653e0824fc9ab55b3beec67a6dbbe514a65fb954"
+uuid = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
+version = "0.9.15"
+weakdeps = ["EnzymeCore"]
+
+    [deps.KernelAbstractions.extensions]
+    EnzymeExt = "EnzymeCore"
+
 [[deps.KernelDensity]]
 deps = ["Distributions", "DocStringExtensions", "FFTW", "Interpolations", "StatsBase"]
 git-tree-sha1 = "fee018a29b60733876eb557804b5b109dd3dd8a7"
@@ -1105,6 +1201,24 @@ deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "f6250b16881adf048549549fba48b1161acdac8c"
 uuid = "c1c5ebd0-6772-5130-a774-d5fcae4a789d"
 version = "3.100.1+0"
+
+[[deps.LLVM]]
+deps = ["CEnum", "LLVMExtra_jll", "Libdl", "Preferences", "Printf", "Requires", "Unicode"]
+git-tree-sha1 = "cb4619f7353fc62a1a22ffa3d7ed9791cfb47ad8"
+uuid = "929cbde3-209d-540e-8aea-75f648917ca0"
+version = "6.4.2"
+
+    [deps.LLVM.extensions]
+    BFloat16sExt = "BFloat16s"
+
+    [deps.LLVM.weakdeps]
+    BFloat16s = "ab4f0b2a-ad5b-11e8-123f-65d77653426b"
+
+[[deps.LLVMExtra_jll]]
+deps = ["Artifacts", "JLLWrappers", "LazyArtifacts", "Libdl", "TOML"]
+git-tree-sha1 = "98eaee04d96d973e79c25d49167668c5c8fb50e2"
+uuid = "dad2f222-ce93-54a1-a47d-0025e8a3acab"
+version = "0.0.27+1"
 
 [[deps.LLVMOpenMP_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -1766,6 +1880,12 @@ git-tree-sha1 = "00099623ffee15972c16111bcf84c58a0051257c"
 uuid = "92933f4c-e287-5a05-a399-4b506db050ca"
 version = "1.9.0"
 
+[[deps.Psychro]]
+deps = ["Unitful"]
+git-tree-sha1 = "6b988fb38c5f69810bc976a02cf8c259095d915b"
+uuid = "9516f557-4a54-5a79-b954-c272e753c77a"
+version = "0.3.0"
+
 [[deps.QOI]]
 deps = ["ColorTypes", "FileIO", "FixedPointNumbers"]
 git-tree-sha1 = "18e8f4d1426e965c7b532ddd260599e1510d26ce"
@@ -1879,6 +1999,12 @@ deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "6ed52fdd3382cf21947b15e8870ac0ddbff736da"
 uuid = "f50d1b31-88e8-58de-be2c-1cc44531875f"
 version = "0.4.0+0"
+
+[[deps.RootSolvers]]
+deps = ["ForwardDiff"]
+git-tree-sha1 = "833d9914e748ca9329b762a82ec912897975f8d8"
+uuid = "7181ea78-2dcb-4de3-ab41-2b8ab5a31e74"
+version = "0.4.1"
 
 [[deps.Roots]]
 deps = ["Accessors", "ChainRulesCore", "CommonSolve", "Printf"]
@@ -2255,6 +2381,12 @@ version = "0.1.1"
 deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
+[[deps.Thermodynamics]]
+deps = ["DocStringExtensions", "KernelAbstractions", "Random", "RootSolvers"]
+git-tree-sha1 = "2de4b5ccc71baf3578959928c295a2fa13105db7"
+uuid = "b60c26fb-14c3-4610-9d3e-2d17fe7ff00c"
+version = "0.11.2"
+
 [[deps.ThreadingUtilities]]
 deps = ["ManualMemory"]
 git-tree-sha1 = "eda08f7e9818eb53661b3deb74e3159460dfbc27"
@@ -2353,6 +2485,17 @@ deps = ["ConstructionBase"]
 git-tree-sha1 = "25008b734a03736c41e2a7dc314ecb95bd6bbdb0"
 uuid = "a7c27f48-0311-42f6-a7f8-2c11e75eb415"
 version = "0.1.6"
+
+[[deps.UnsafeAtomics]]
+git-tree-sha1 = "6331ac3440856ea1988316b46045303bef658278"
+uuid = "013be700-e6cd-48c3-b4a1-df204f14c38f"
+version = "0.2.1"
+
+[[deps.UnsafeAtomicsLLVM]]
+deps = ["LLVM", "UnsafeAtomics"]
+git-tree-sha1 = "323e3d0acf5e78a56dfae7bd8928c989b4f3083e"
+uuid = "d80eeb9a-aca5-4d75-85e5-170c8b632249"
+version = "0.1.3"
 
 [[deps.VectorizationBase]]
 deps = ["ArrayInterface", "CPUSummary", "HostCPUFeatures", "IfElse", "LayoutPointers", "Libdl", "LinearAlgebra", "SIMDTypes", "Static", "StaticArrayInterface"]
@@ -2509,13 +2652,21 @@ version = "3.5.0+0"
 
 # ╔═╡ Cell order:
 # ╟─d4189065-6aab-4920-bd21-22bc69f92ad5
-# ╟─6491e060-cf27-11ee-14d2-bbfe55d17ee8
+# ╠═6491e060-cf27-11ee-14d2-bbfe55d17ee8
 # ╠═bc62a1d5-aeb2-4bec-a22d-15499f54056f
 # ╠═694b2733-2715-45b9-a153-4addc1f88e52
+# ╠═8e00b0b8-09d4-4687-ac87-a0b80ae69fdf
+# ╠═7f886558-9884-436f-9a96-a56517799eab
+# ╠═32785360-d117-4986-ac65-6e6c5dfdef95
 # ╟─ed994cb4-553d-4ec5-b36d-fa30d46373c8
+# ╟─b99a067e-e166-4e75-a538-5c6d5334a25e
+# ╟─043062dc-dfda-4c33-a35f-95cd2a2c78a0
 # ╠═e6f4b40c-a3b4-4da7-a252-085724901e8d
 # ╠═31717fa3-09dd-4ebc-8a08-f485b5216b11
+# ╠═71c95469-a9d8-4bc0-919f-c56228e72264
 # ╠═c53fa179-986b-46b4-8c88-ccdb4378e99f
+# ╟─fb68d662-30ed-4191-a634-b34192210bf0
+# ╟─dae005f2-8b15-47ae-8170-e56e43b74996
 # ╠═e1c94f16-9d56-4965-86d1-abfc19195b87
 # ╟─c3abf986-a852-480d-a624-18d7631edcc7
 # ╟─80a047ba-3469-4598-b000-d97ea9c75753

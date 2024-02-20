@@ -28,10 +28,11 @@ $(TableOfContents())
 """
 
 # ╔═╡ 8e00b0b8-09d4-4687-ac87-a0b80ae69fdf
-
-
-# ╔═╡ 7f886558-9884-436f-9a96-a56517799eab
-
+begin
+	c = 2
+	x = collect(1:1:10)
+	x[begin:c:end]
+end
 
 # ╔═╡ 32785360-d117-4986-ac65-6e6c5dfdef95
 
@@ -118,17 +119,18 @@ end
 # ╔═╡ 694b2733-2715-45b9-a153-4addc1f88e52
 let
 	h = get_air_enthalpy_function()
-	T = LinRange(0.0u"°C", 200.0u"°C", 1000)
+	T = LinRange(0.0u"°C", 200.0u"°C", 1000+1)
 	H = h.(T)
 
+	cut = 100
 	hf = fit(ustrip(T), ustrip(H), 2; var = :T)
+	Hf = hf.(ustrip(T)[begin:cut:end])
 	
 	f = Figure(size = (700, 400))
-	ax = Axis(f[1, 1])
-	lines!(ax, ustrip(T), ustrip(H))
-	# lines!(ax, ustrip(T), hf(ustrip(T)))
+	ax = Axis(f[1, 1]; title = string(hf))
+	lines!(ax, ustrip(T), ustrip(H); color = :black)
+	scatter!(ax, ustrip(T)[begin:cut:end], Hf; color = :red)
 	f
-	hf(10)
 end
 
 # ╔═╡ e1c94f16-9d56-4965-86d1-abfc19195b87
@@ -2656,7 +2658,6 @@ version = "3.5.0+0"
 # ╠═bc62a1d5-aeb2-4bec-a22d-15499f54056f
 # ╠═694b2733-2715-45b9-a153-4addc1f88e52
 # ╠═8e00b0b8-09d4-4687-ac87-a0b80ae69fdf
-# ╠═7f886558-9884-436f-9a96-a56517799eab
 # ╠═32785360-d117-4986-ac65-6e6c5dfdef95
 # ╟─ed994cb4-553d-4ec5-b36d-fa30d46373c8
 # ╟─b99a067e-e166-4e75-a538-5c6d5334a25e

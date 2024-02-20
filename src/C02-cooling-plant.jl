@@ -78,6 +78,11 @@ begin
 	abstract type AbstractGasMaterial <: AbstractMaterial end
 end
 
+# ╔═╡ 233e95d3-9611-4fdf-b12f-3ce43434866d
+struct StreamPipeline
+	M::Vector{AbstractMaterial}
+end
+
 # ╔═╡ e1c94f16-9d56-4965-86d1-abfc19195b87
 struct MaterialStream
 	ṁ::Float64
@@ -85,6 +90,7 @@ struct MaterialStream
 	P::Float64
 	Y::Vector{Float64}
 	M::Vector{AbstractMaterial}
+	pipeline::StreamPipeline
 end
 
 # ╔═╡ 71c95469-a9d8-4bc0-919f-c56228e72264
@@ -2810,6 +2816,7 @@ version = "3.5.0+0"
 # ╠═7ff0dabc-831b-45f8-91f8-4969cf317d63
 # ╟─ed994cb4-553d-4ec5-b36d-fa30d46373c8
 # ╟─5fb0b8ea-0d30-4496-9f66-dc70dfed94ed
+# ╠═233e95d3-9611-4fdf-b12f-3ce43434866d
 # ╠═e1c94f16-9d56-4965-86d1-abfc19195b87
 # ╠═26b92abc-9f78-4e4c-8e84-3e2af9d0588b
 # ╟─8358c1f0-3a5f-401a-9755-06e8a70acda9

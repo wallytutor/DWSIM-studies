@@ -27,19 +27,127 @@ md"""
 $(TableOfContents())
 """
 
-# ╔═╡ 8e00b0b8-09d4-4687-ac87-a0b80ae69fdf
-begin
-	c = 2
-	x = collect(1:1:10)
-	x[begin:c:end]
-end
+# ╔═╡ 3ddb3d01-9ae3-4beb-ab41-e2a57e0ecc12
+md"""
+## Check water cooling power
+"""
 
-# ╔═╡ 32785360-d117-4986-ac65-6e6c5dfdef95
+# ╔═╡ 855e9382-1edc-4865-9c13-19b52631fdd2
+md"""
+## Check air properties
+
+!!! warning "IMPORTANT"
+
+	 The polynomial fit in the following cell was manually copied and stored as a constant. If any updates are provided to the air enthalpy computation method, this needs to be restored. This choice was made to make it easier to export developed code to an external module.
+
+"""
+
+# ╔═╡ 076e0734-a39c-4f60-ae95-fe62e8e61076
+md"""
+## Creating streams
+"""
+
+# ╔═╡ 7ff0dabc-831b-45f8-91f8-4969cf317d63
 
 
 # ╔═╡ ed994cb4-553d-4ec5-b36d-fa30d46373c8
 md"""
 ## Implementation
+"""
+
+# ╔═╡ 5fb0b8ea-0d30-4496-9f66-dc70dfed94ed
+md"""
+### Operations
+"""
+
+# ╔═╡ 8358c1f0-3a5f-401a-9755-06e8a70acda9
+md"""
+### Materials
+"""
+
+# ╔═╡ e6f4b40c-a3b4-4da7-a252-085724901e8d
+begin
+	@info "Abstract materials..."
+	
+	abstract type AbstractMaterial end
+	
+	abstract type AbstractLiquidMaterial <: AbstractMaterial end
+	
+	abstract type AbstractSolidMaterial <: AbstractMaterial end
+
+	abstract type AbstractGasMaterial <: AbstractMaterial end
+end
+
+# ╔═╡ e1c94f16-9d56-4965-86d1-abfc19195b87
+struct MaterialStream
+	ṁ::Float64
+	T::Float64
+	P::Float64
+	Y::Vector{Float64}
+	M::Vector{AbstractMaterial}
+end
+
+# ╔═╡ 71c95469-a9d8-4bc0-919f-c56228e72264
+"Liquid water material."
+struct Water <: AbstractLiquidMaterial
+end
+
+# ╔═╡ 31717fa3-09dd-4ebc-8a08-f485b5216b11
+"Solid clinker material."
+struct Clinker <: AbstractSolidMaterial
+	ρ::Float64
+	h::Polynomial
+
+	function Clinker(; ρ = 900.0, h = [0, 850.0])
+		return new(ρ, Polynomial(h, :T))
+	end
+end
+
+# ╔═╡ 40fc5c9c-b90e-4c15-b290-46dd355f62cc
+md"""
+### Methods
+"""
+
+# ╔═╡ dbfbd233-d64d-4d8e-96e6-b88e24eb2726
+md"""
+### Functions
+"""
+
+# ╔═╡ dae005f2-8b15-47ae-8170-e56e43b74996
+"Create air enthalpy function for given pressure and dew point."
+function get_air_enthalpy_function(; P = 1.0u"atm", D = 0.0u"°C")
+	return x->Psychro.enthalpy(Psychro.MoistAir, x, Psychro.DewPoint, D, P)
+end
+
+# ╔═╡ 694b2733-2715-45b9-a153-4addc1f88e52
+let
+	# XXX: the behaviour in `LinRange` is different from what happens after
+	# one calls `ustrip` for a single value. Here outputs are already in K.
+	T = LinRange(0.0u"°C", 200.0u"°C", 1000+1)
+	H = get_air_enthalpy_function().(T)
+
+	cut = 100
+	hf = fit(ustrip(T), ustrip(H), 2; var = :T)
+	Hf = hf.(ustrip(T)[begin:cut:end])
+
+	f = Figure(size = (700, 400))
+	ax = Axis(f[1, 1]; title = string(hf))
+	lines!(ax, ustrip(T), ustrip(H) ./ 1000; color = :black)
+	scatter!(ax, ustrip(T)[begin:cut:end], Hf ./ 1000; color = :red)
+	ax.xlabel = "Temperature [K]"
+	ax.ylabel = "Enthalpy [kJ/kg]"
+	f
+end
+
+# ╔═╡ 9e7ff999-8fe7-4f34-9f5f-dfb09e17754a
+"Prepare units for creating a material stream."
+function get_stream_si_units(ṁ ,T, P)
+	return (uconvert(u"kg/s", ṁ), uconvert(u"K", T), uconvert(u"Pa", P))
+end
+
+# ╔═╡ 973aa28a-71bb-4149-8265-6a6ccbdf414c
+md"""
+## Constants and parameters
 """
 
 # ╔═╡ b99a067e-e166-4e75-a538-5c6d5334a25e
@@ -50,34 +158,30 @@ const RGAS::Float64 = 8.314_462_618_153_24
 "Reference atmospheric pressure [Pa]."
 const PREF::Float64 = 101325.0
 
-# ╔═╡ e6f4b40c-a3b4-4da7-a252-085724901e8d
-begin
-	abstract type AbstractMaterial end
-	
-	abstract type AbstractLiquidMaterial <: AbstractMaterial end
-	
-	abstract type AbstractSolidMaterial <: AbstractMaterial end
+# ╔═╡ 04388a90-7355-4451-a8af-b030b600ad3f
+"Normal atmospheric temperature [K]."
+const TREF::Float64 = 273.15
 
-	abstract type AbstractGasMaterial <: AbstractMaterial end
-end
+# ╔═╡ ce400b07-d495-4e66-942a-f3a25570e747
+"Air mean molecular mass [kg/mol]."
+const M_AIR::Float64 = 0.0289647
 
-# ╔═╡ 31717fa3-09dd-4ebc-8a08-f485b5216b11
-struct Clinker <: AbstractSolidMaterial
-	ρ::Float64
-	c::Polynomial
-end
-
-# ╔═╡ 71c95469-a9d8-4bc0-919f-c56228e72264
-struct Water <: AbstractLiquidMaterial
-end
+# ╔═╡ 59a8f15c-552e-47f7-9c33-5ca7ee340874
+"Coefficients for air enthalpy polynomial [J/kg]."
+const H_AIR::Vector{Float64} = [
+	-2.6257123774377e+05,
+	 9.8274248481342e+02,
+	 4.9125599795629e-02
+]
 
 # ╔═╡ c53fa179-986b-46b4-8c88-ccdb4378e99f
+"Gas air material."
 struct Air <: AbstractGasMaterial
 	M̄::Float64
-	c::Polynomial
+	h::Polynomial
 
-	function Air()
-		new(0.0289647,  )
+	function Air(; h = H_AIR)
+		return new(M_AIR, Polynomial(h, :T))
 	end
 end
 
@@ -96,7 +200,7 @@ begin
 end
 
 # ╔═╡ bc62a1d5-aeb2-4bec-a22d-15499f54056f
-begin
+let
 	water = Water()
 	
 	V̇ = 2.0u"m^3/hr"
@@ -110,36 +214,78 @@ begin
 	Q̇ = uconvert(u"kW", ρ * V̇ * diff(H)[1]) 
 end
 
-# ╔═╡ dae005f2-8b15-47ae-8170-e56e43b74996
-"Create air enthalpy function for given pressure and dew point."
-function get_air_enthalpy_function(; P = 1.0u"atm", D = 0.0u"°C")
-	return x->enthalpy(MoistAir, x, DewPoint, D, P)
-end
-
-# ╔═╡ 694b2733-2715-45b9-a153-4addc1f88e52
-let
-	h = get_air_enthalpy_function()
-	T = LinRange(0.0u"°C", 200.0u"°C", 1000+1)
-	H = h.(T)
-
-	cut = 100
-	hf = fit(ustrip(T), ustrip(H), 2; var = :T)
-	Hf = hf.(ustrip(T)[begin:cut:end])
+# ╔═╡ b03e91ec-40b9-441c-bca5-e7d3e7e6f88a
+begin
+	enthalpy(mat::AbstractMaterial, T) = error("Not implemented")
 	
-	f = Figure(size = (700, 400))
-	ax = Axis(f[1, 1]; title = string(hf))
-	lines!(ax, ustrip(T), ustrip(H); color = :black)
-	scatter!(ax, ustrip(T)[begin:cut:end], Hf; color = :red)
-	f
+	enthalpy(mat::Clinker, T, P) = mat.h(T)
+
+	# NOTE: inputs in kJ/kg = f(MPa, K)
+	enthalpy(mat::Water, T, P) = 1000.0 * SpecificH(1.0e-06P, T)
+	
+	enthalpy(mat::Air, T, P) = mat.h(T)
+	
+	@doc "Evaluates the enthalpy of material [J/kg]."
+	enthalpy
 end
 
-# ╔═╡ e1c94f16-9d56-4965-86d1-abfc19195b87
-struct MaterialStream
-	ṁ::Float64
-	T::Float64
-	P::Float64
-	Y::Vector{Float64}
-	M::Vector{AbstractMaterial}
+# ╔═╡ 212b9dad-ba96-4c1f-9e2f-d490d56d4f97
+"Mass-weighted average enthalpy flow rate."
+function enthalpyflowrate(s::MaterialStream)
+	h = broadcast((Y, M)->Y * enthalpy(M, s.T, s.P) , s.Y, s.M)
+	return s.ṁ * sum(h)
+end
+
+# ╔═╡ 26b92abc-9f78-4e4c-8e84-3e2af9d0588b
+struct Mix2
+	sin1::MaterialStream
+	sin2::MaterialStream
+	sout::MaterialStream
+
+	function Mix2(sin1, sin2)
+		ṁ = sin1.ṁ + sin2.ṁ
+
+		# Y must consider that the same material can be
+		# present in both streams, so there is a bit more
+		# of coding here! FINISH!
+		# Y = [sin1.m]
+		# M = 
+		
+		h1 = enthalpyflowrate(sin1)
+		h2 = enthalpyflowrate(sin2)
+
+		# T =
+		# P =
+		
+		# MaterialStream(ṁ, T, P, Y, M)
+		return new(sin1, sin2, sin1)
+	end
+end
+
+# ╔═╡ 5868861a-7b8c-4711-81c5-15fe4bc2d4b2
+let
+	T = 20u"°C"
+	P = 1.0u"atm"
+	
+	water   = Water()
+	clinker = Clinker()
+	air     = Air()
+	
+	ṁ = 900.0u"kg/hr"
+	ṁw, Tw, Pw = ustrip.(get_stream_si_units(ṁ ,T, P))
+	sw = MaterialStream(ṁw, Tw, Pw, [1.0], [water])
+
+	ṁ = 500.0u"kg/hr"
+	ṁc, Tc, Pc = ustrip.(get_stream_si_units(ṁ ,T, P))
+	sc = MaterialStream(ṁc, Tc, Pc, [1.0], [clinker])
+
+	ṁ = 250.0u"kg/hr"
+	ṁa, Ta, Pa = ustrip.(get_stream_si_units(ṁ ,T, P))
+	sa = MaterialStream(ṁa, Ta, Pa, [1.0], [air])
+	
+	enthalpyflowrate(sw), enthalpyflowrate(sc), enthalpyflowrate(sa)
+
+	MIX1 = Mix2(sc, sa)
 end
 
 # ╔═╡ c3abf986-a852-480d-a624-18d7631edcc7
@@ -2655,20 +2801,35 @@ version = "3.5.0+0"
 # ╔═╡ Cell order:
 # ╟─d4189065-6aab-4920-bd21-22bc69f92ad5
 # ╠═6491e060-cf27-11ee-14d2-bbfe55d17ee8
-# ╠═bc62a1d5-aeb2-4bec-a22d-15499f54056f
-# ╠═694b2733-2715-45b9-a153-4addc1f88e52
-# ╠═8e00b0b8-09d4-4687-ac87-a0b80ae69fdf
-# ╠═32785360-d117-4986-ac65-6e6c5dfdef95
+# ╟─3ddb3d01-9ae3-4beb-ab41-e2a57e0ecc12
+# ╟─bc62a1d5-aeb2-4bec-a22d-15499f54056f
+# ╟─855e9382-1edc-4865-9c13-19b52631fdd2
+# ╟─694b2733-2715-45b9-a153-4addc1f88e52
+# ╟─076e0734-a39c-4f60-ae95-fe62e8e61076
+# ╠═5868861a-7b8c-4711-81c5-15fe4bc2d4b2
+# ╠═7ff0dabc-831b-45f8-91f8-4969cf317d63
 # ╟─ed994cb4-553d-4ec5-b36d-fa30d46373c8
+# ╟─5fb0b8ea-0d30-4496-9f66-dc70dfed94ed
+# ╠═e1c94f16-9d56-4965-86d1-abfc19195b87
+# ╠═26b92abc-9f78-4e4c-8e84-3e2af9d0588b
+# ╟─8358c1f0-3a5f-401a-9755-06e8a70acda9
+# ╟─e6f4b40c-a3b4-4da7-a252-085724901e8d
+# ╟─71c95469-a9d8-4bc0-919f-c56228e72264
+# ╟─31717fa3-09dd-4ebc-8a08-f485b5216b11
+# ╟─c53fa179-986b-46b4-8c88-ccdb4378e99f
+# ╟─40fc5c9c-b90e-4c15-b290-46dd355f62cc
+# ╟─fb68d662-30ed-4191-a634-b34192210bf0
+# ╟─b03e91ec-40b9-441c-bca5-e7d3e7e6f88a
+# ╟─212b9dad-ba96-4c1f-9e2f-d490d56d4f97
+# ╟─dbfbd233-d64d-4d8e-96e6-b88e24eb2726
+# ╟─dae005f2-8b15-47ae-8170-e56e43b74996
+# ╟─9e7ff999-8fe7-4f34-9f5f-dfb09e17754a
+# ╟─973aa28a-71bb-4149-8265-6a6ccbdf414c
 # ╟─b99a067e-e166-4e75-a538-5c6d5334a25e
 # ╟─043062dc-dfda-4c33-a35f-95cd2a2c78a0
-# ╠═e6f4b40c-a3b4-4da7-a252-085724901e8d
-# ╠═31717fa3-09dd-4ebc-8a08-f485b5216b11
-# ╠═71c95469-a9d8-4bc0-919f-c56228e72264
-# ╠═c53fa179-986b-46b4-8c88-ccdb4378e99f
-# ╟─fb68d662-30ed-4191-a634-b34192210bf0
-# ╟─dae005f2-8b15-47ae-8170-e56e43b74996
-# ╠═e1c94f16-9d56-4965-86d1-abfc19195b87
+# ╟─04388a90-7355-4451-a8af-b030b600ad3f
+# ╟─ce400b07-d495-4e66-942a-f3a25570e747
+# ╟─59a8f15c-552e-47f7-9c33-5ca7ee340874
 # ╟─c3abf986-a852-480d-a624-18d7631edcc7
 # ╟─80a047ba-3469-4598-b000-d97ea9c75753
 # ╟─ffc9b07f-9639-4c77-a999-03807e3a520a

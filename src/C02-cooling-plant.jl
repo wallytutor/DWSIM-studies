@@ -191,6 +191,33 @@ struct Air <: AbstractGasMaterial
 	end
 end
 
+# ╔═╡ 5868861a-7b8c-4711-81c5-15fe4bc2d4b2
+let
+	T = 20u"°C"
+	P = 1.0u"atm"
+	
+	water   = Water()
+	clinker = Clinker()
+	air     = Air()
+
+	pipeline = StreamPipeline([clinker, air])
+	# ṁ = 900.0u"kg/hr"
+	# ṁw, Tw, Pw = ustrip.(get_stream_si_units(ṁ ,T, P))
+	# sw = MaterialStream(ṁw, Tw, Pw, [1.0], [water])
+
+	# ṁ = 500.0u"kg/hr"
+	# ṁc, Tc, Pc = ustrip.(get_stream_si_units(ṁ ,T, P))
+	# sc = MaterialStream(ṁc, Tc, Pc, [1.0], [clinker])
+
+	# ṁ = 250.0u"kg/hr"
+	# ṁa, Ta, Pa = ustrip.(get_stream_si_units(ṁ ,T, P))
+	# sa = MaterialStream(ṁa, Ta, Pa, [1.0], [air])
+	
+	# enthalpyflowrate(sw), enthalpyflowrate(sc), enthalpyflowrate(sa)
+
+	# MIX1 = Mix2(sc, sa)
+end
+
 # ╔═╡ fb68d662-30ed-4191-a634-b34192210bf0
 begin
 	density(mat::AbstractMaterial, T, P) = error("Not implemented")
@@ -266,32 +293,6 @@ struct Mix2
 		# MaterialStream(ṁ, T, P, Y, M)
 		return new(sin1, sin2, sin1)
 	end
-end
-
-# ╔═╡ 5868861a-7b8c-4711-81c5-15fe4bc2d4b2
-let
-	T = 20u"°C"
-	P = 1.0u"atm"
-	
-	water   = Water()
-	clinker = Clinker()
-	air     = Air()
-	
-	ṁ = 900.0u"kg/hr"
-	ṁw, Tw, Pw = ustrip.(get_stream_si_units(ṁ ,T, P))
-	sw = MaterialStream(ṁw, Tw, Pw, [1.0], [water])
-
-	ṁ = 500.0u"kg/hr"
-	ṁc, Tc, Pc = ustrip.(get_stream_si_units(ṁ ,T, P))
-	sc = MaterialStream(ṁc, Tc, Pc, [1.0], [clinker])
-
-	ṁ = 250.0u"kg/hr"
-	ṁa, Ta, Pa = ustrip.(get_stream_si_units(ṁ ,T, P))
-	sa = MaterialStream(ṁa, Ta, Pa, [1.0], [air])
-	
-	enthalpyflowrate(sw), enthalpyflowrate(sc), enthalpyflowrate(sa)
-
-	MIX1 = Mix2(sc, sa)
 end
 
 # ╔═╡ c3abf986-a852-480d-a624-18d7631edcc7

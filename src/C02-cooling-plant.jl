@@ -48,9 +48,6 @@ md"""
 ## Creating streams
 """
 
-# ╔═╡ fb91bffc-78b2-46f9-a28d-bd42810440c3
-
-
 # ╔═╡ ed994cb4-553d-4ec5-b36d-fa30d46373c8
 md"""
 ## Implementation
@@ -60,6 +57,12 @@ md"""
 md"""
 ### Operations
 """
+
+# ╔═╡ e0202175-5b36-45ed-95fa-95016290bdf2
+"Represents an energy stream."
+struct EnergyStream
+	ḣ::Float64
+end
 
 # ╔═╡ 8358c1f0-3a5f-401a-9755-06e8a70acda9
 md"""
@@ -93,6 +96,20 @@ struct MaterialStream
 	P::Float64
 	Y::Vector{Float64}
 	pipeline::StreamPipeline
+end
+
+# ╔═╡ 59f5d9e0-12b9-49a5-9dee-b4e9e9a4b010
+struct CooledMill
+	product::MaterialStream
+	coolant::MaterialStream
+	power::EnergyStream
+	area::Float64
+	htc::Float64
+
+	function CooledMill(; product, coolant, power, area, htc)
+		
+		return new(product, coolant, power, area, htc)
+	end
 end
 
 # ╔═╡ 71c95469-a9d8-4bc0-919f-c56228e72264
@@ -173,6 +190,55 @@ struct Air <: AbstractGasMaterial
 	end
 end
 
+# ╔═╡ fb91bffc-78b2-46f9-a28d-bd42810440c3
+let
+	# Operating conditions during tests.
+	T = ustrip(uconvert(u"K", 5.0u"°C"))
+	P = ustrip(uconvert(u"Pa", 1.0u"atm"))
+
+	# Controlled flows.
+	m2 = ustrip(uconvert(u"kg/s", 500u"kg/hr"))
+	m1 = ustrip(uconvert(u"kg/s", 2400u"kg/hr"))
+
+	# TODO set mass flows.
+	m7 = ustrip(uconvert(u"kg/s", 0u"kg/hr"))
+	m9 = ustrip(uconvert(u"kg/s", 0u"kg/hr"))
+	
+	pm = ustrip(uconvert(u"W", 100u"kW"))
+	
+	# Materials used for mass and energy balance.
+	clinker = Clinker()
+	air     = Air()
+
+	# Individual proicess pipelines.
+	cool = StreamPipeline([air])
+	prod = StreamPipeline([clinker, air])
+
+	# Applied power at mill.
+	millingpower = EnergyStream(pm)
+	
+	# Clinker material stream.
+	s2 = MaterialStream(m2, T, P, [1.0, 0.0], prod)
+
+	# Milling air stream.
+	s1 = MaterialStream(m1, T, P, [0.0, 1.0], prod)
+	
+	# Air leaks in mill.
+	s7 = MaterialStream(m7, T, P, [0.0, 1.0], prod)
+	s9 = MaterialStream(m9, T, P, [0.0, 1.0], prod)
+
+	# mix = s2 + s1 + s7 + s9 + millingpower
+	# mix.T - 273.15
+
+	# mill = CooledMill(; 
+	# 	product = sum([s2, s1, s7, s9]),
+	# 	coolant = ,
+	# 	power   = millingpower,
+	# 	area,
+	# 	htc
+	# )
+end
+
 # ╔═╡ fb68d662-30ed-4191-a634-b34192210bf0
 begin
 	density(mat::AbstractMaterial, T, P) = error("Not implemented")
@@ -214,7 +280,7 @@ begin
 	enthalpy(mat::Air, T, P) = mat.h(T)
 
 	function enthalpy(pipe::StreamPipeline, T, P, Y)
-		return Y .* enthalpy.(pipe.materials, T, P) |> first
+		return sum(Y .* enthalpy.(pipe.materials, T, P))
 	end
 
 	function enthalpy(stream::MaterialStream, T, P)
@@ -230,8 +296,14 @@ begin
 end
 
 # ╔═╡ 212b9dad-ba96-4c1f-9e2f-d490d56d4f97
-"Mass-weighted average enthalpy flow rate [W]."
-enthalpyflowrate(s::MaterialStream) = s.ṁ * enthalpy(s)
+begin
+	enthalpyflowrate(s::MaterialStream) = s.ṁ * enthalpy(s)
+
+	enthapyflowrate(e::EnergyStream) = e.ḣ
+
+	@doc "Enthalpy flow rate of given stream [W]."
+	enthapyflowrate
+end
 
 # ╔═╡ f1623dc0-3901-41aa-b398-15ca529c813e
 begin
@@ -260,10 +332,10 @@ begin
 	
 		function f(t)
 			# Create a stream with other conditions fixed.
-			s = MaterialStream(ṁ, t, P, Y, s₁.pipeline)
+			sn = MaterialStream(ṁ, t, P, Y, s₁.pipeline)
 
 			# Check if with temperature `t` it matches `ĥ`.
-			return enthalpyflowrate(s) - ĥ
+			return enthalpyflowrate(sn) - ĥ
 		end
 
 		# Find new temperature starting from the top.
@@ -271,6 +343,25 @@ begin
 
 		# Create resulting stream.
 		return MaterialStream(ṁ, T, P, Y, s₁.pipeline)
+	end
+
+	function Base.:+(s::MaterialStream, e::EnergyStream)
+		# Energy flow is the sum of individual stream flows.
+		ĥ = enthalpyflowrate(s) + enthapyflowrate(e)
+	
+		function f(t)
+			# Create a stream with other conditions fixed.
+			sn = MaterialStream(s.ṁ, t, s.P, s.Y, s.pipeline)
+
+			# Check if with temperature `t` it matches `ĥ`.
+			return enthalpyflowrate(sn) - ĥ
+		end
+
+		# # Find new temperature starting from current temperature.
+		T = find_zero(f, TREF)
+
+		# Create resulting stream.
+		return MaterialStream(s.ṁ, T, s.P, s.Y, s.pipeline)
 	end
 end
 
@@ -296,6 +387,8 @@ end
 
 # ╔═╡ 5868861a-7b8c-4711-81c5-15fe4bc2d4b2
 let
+	@info "Implementation testing (draft mode)"
+
 	T = 20u"°C"
 	P = 1.0u"atm"
 	
@@ -317,7 +410,7 @@ let
 	sa = MaterialStream(ṁa, Ta, Pa, [0.0, 1.0], cementpipe)
 
 	sc + sa
-end
+end;
 
 # ╔═╡ c3abf986-a852-480d-a624-18d7631edcc7
 md"""
@@ -2865,12 +2958,14 @@ version = "3.5.0+0"
 # ╟─855e9382-1edc-4865-9c13-19b52631fdd2
 # ╟─694b2733-2715-45b9-a153-4addc1f88e52
 # ╟─076e0734-a39c-4f60-ae95-fe62e8e61076
-# ╠═5868861a-7b8c-4711-81c5-15fe4bc2d4b2
+# ╟─5868861a-7b8c-4711-81c5-15fe4bc2d4b2
 # ╠═fb91bffc-78b2-46f9-a28d-bd42810440c3
 # ╟─ed994cb4-553d-4ec5-b36d-fa30d46373c8
 # ╟─5fb0b8ea-0d30-4496-9f66-dc70dfed94ed
 # ╟─233e95d3-9611-4fdf-b12f-3ce43434866d
 # ╟─e1c94f16-9d56-4965-86d1-abfc19195b87
+# ╟─e0202175-5b36-45ed-95fa-95016290bdf2
+# ╠═59f5d9e0-12b9-49a5-9dee-b4e9e9a4b010
 # ╟─8358c1f0-3a5f-401a-9755-06e8a70acda9
 # ╟─e6f4b40c-a3b4-4da7-a252-085724901e8d
 # ╟─71c95469-a9d8-4bc0-919f-c56228e72264

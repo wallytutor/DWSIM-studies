@@ -14,6 +14,7 @@ begin
 	using PlutoUI
 	using Polynomials
 	using Psychro
+	using Roots
 	using Statistics
 	using SteamTables
 	using Thermodynamics
@@ -47,7 +48,7 @@ md"""
 ## Creating streams
 """
 
-# ╔═╡ 7ff0dabc-831b-45f8-91f8-4969cf317d63
+# ╔═╡ fb91bffc-78b2-46f9-a28d-bd42810440c3
 
 
 # ╔═╡ ed994cb4-553d-4ec5-b36d-fa30d46373c8
@@ -79,17 +80,18 @@ begin
 end
 
 # ╔═╡ 233e95d3-9611-4fdf-b12f-3ce43434866d
+"Array of materials to include in a stream."
 struct StreamPipeline
-	M::Vector{AbstractMaterial}
+	materials::Vector{AbstractMaterial}
 end
 
 # ╔═╡ e1c94f16-9d56-4965-86d1-abfc19195b87
+"Represents a material stream."
 struct MaterialStream
 	ṁ::Float64
 	T::Float64
 	P::Float64
 	Y::Vector{Float64}
-	M::Vector{AbstractMaterial}
 	pipeline::StreamPipeline
 end
 
@@ -125,26 +127,6 @@ function get_air_enthalpy_function(; P = 1.0u"atm", D = 0.0u"°C")
 	return x->Psychro.enthalpy(Psychro.MoistAir, x, Psychro.DewPoint, D, P)
 end
 
-# ╔═╡ 694b2733-2715-45b9-a153-4addc1f88e52
-let
-	# XXX: the behaviour in `LinRange` is different from what happens after
-	# one calls `ustrip` for a single value. Here outputs are already in K.
-	T = LinRange(0.0u"°C", 200.0u"°C", 1000+1)
-	H = get_air_enthalpy_function().(T)
-
-	cut = 100
-	hf = fit(ustrip(T), ustrip(H), 2; var = :T)
-	Hf = hf.(ustrip(T)[begin:cut:end])
-
-	f = Figure(size = (700, 400))
-	ax = Axis(f[1, 1]; title = string(hf))
-	lines!(ax, ustrip(T), ustrip(H) ./ 1000; color = :black)
-	scatter!(ax, ustrip(T)[begin:cut:end], Hf ./ 1000; color = :red)
-	ax.xlabel = "Temperature [K]"
-	ax.ylabel = "Enthalpy [kJ/kg]"
-	f
-end
-
 # ╔═╡ 9e7ff999-8fe7-4f34-9f5f-dfb09e17754a
 "Prepare units for creating a material stream."
 function get_stream_si_units(ṁ ,T, P)
@@ -153,7 +135,7 @@ end
 
 # ╔═╡ 973aa28a-71bb-4149-8265-6a6ccbdf414c
 md"""
-## Constants and parameters
+### Parameters
 """
 
 # ╔═╡ b99a067e-e166-4e75-a538-5c6d5334a25e
@@ -191,33 +173,6 @@ struct Air <: AbstractGasMaterial
 	end
 end
 
-# ╔═╡ 5868861a-7b8c-4711-81c5-15fe4bc2d4b2
-let
-	T = 20u"°C"
-	P = 1.0u"atm"
-	
-	water   = Water()
-	clinker = Clinker()
-	air     = Air()
-
-	pipeline = StreamPipeline([clinker, air])
-	# ṁ = 900.0u"kg/hr"
-	# ṁw, Tw, Pw = ustrip.(get_stream_si_units(ṁ ,T, P))
-	# sw = MaterialStream(ṁw, Tw, Pw, [1.0], [water])
-
-	# ṁ = 500.0u"kg/hr"
-	# ṁc, Tc, Pc = ustrip.(get_stream_si_units(ṁ ,T, P))
-	# sc = MaterialStream(ṁc, Tc, Pc, [1.0], [clinker])
-
-	# ṁ = 250.0u"kg/hr"
-	# ṁa, Ta, Pa = ustrip.(get_stream_si_units(ṁ ,T, P))
-	# sa = MaterialStream(ṁa, Ta, Pa, [1.0], [air])
-	
-	# enthalpyflowrate(sw), enthalpyflowrate(sc), enthalpyflowrate(sa)
-
-	# MIX1 = Mix2(sc, sa)
-end
-
 # ╔═╡ fb68d662-30ed-4191-a634-b34192210bf0
 begin
 	density(mat::AbstractMaterial, T, P) = error("Not implemented")
@@ -249,50 +204,119 @@ end
 
 # ╔═╡ b03e91ec-40b9-441c-bca5-e7d3e7e6f88a
 begin
-	enthalpy(mat::AbstractMaterial, T) = error("Not implemented")
+	enthalpy(mat::AbstractMaterial, pars...) = error("Not implemented")
 	
 	enthalpy(mat::Clinker, T, P) = mat.h(T)
 
 	# NOTE: inputs in kJ/kg = f(MPa, K)
-	enthalpy(mat::Water, T, P) = 1000.0 * SpecificH(1.0e-06P, T)
+	enthalpy(mat::Water, T, P) = 1.0e+03SpecificH(1.0e-06P, T)
 	
 	enthalpy(mat::Air, T, P) = mat.h(T)
+
+	function enthalpy(pipe::StreamPipeline, T, P, Y)
+		return Y .* enthalpy.(pipe.materials, T, P) |> first
+	end
+
+	function enthalpy(stream::MaterialStream, T, P)
+		return enthalpy(stream.pipeline, T, P, stream.Y)
+	end
+
+	function enthalpy(stream::MaterialStream)
+		return enthalpy(stream, stream.T, stream.P)
+	end
 	
 	@doc "Evaluates the enthalpy of material [J/kg]."
 	enthalpy
 end
 
 # ╔═╡ 212b9dad-ba96-4c1f-9e2f-d490d56d4f97
-"Mass-weighted average enthalpy flow rate."
-function enthalpyflowrate(s::MaterialStream)
-	h = broadcast((Y, M)->Y * enthalpy(M, s.T, s.P) , s.Y, s.M)
-	return s.ṁ * sum(h)
+"Mass-weighted average enthalpy flow rate [W]."
+enthalpyflowrate(s::MaterialStream) = s.ṁ * enthalpy(s)
+
+# ╔═╡ f1623dc0-3901-41aa-b398-15ca529c813e
+begin
+	@info "Overloaded Base:+ for mixing MaterialStream's."
+	
+	function Base.:+(s₁::MaterialStream, s₂::MaterialStream)
+		# Can only mix streams using same material pipeline.
+		@assert s₁.pipeline == s₂.pipeline
+
+		# Retrieve flow rates.
+		ṁ₁ = s₁.ṁ
+		ṁ₂ = s₂.ṁ
+
+		# Total mass flow is the sum of stream flows.
+		ṁ = ṁ₁ + ṁ₂
+
+		# Mass weighted average pressure.
+		P = (ṁ₁ * s₁.P + ṁ₂ * s₂.P) / ṁ
+
+		# Compute species total mass flow and divide by total flow
+		# rate to get resulting stream mass fractions.
+		Y = (ṁ₁ * s₁.Y + ṁ₂ * s₂.Y) / ṁ
+
+		# Energy flow is the sum of individual stream flows.
+		ĥ = enthalpyflowrate(s₁) + enthalpyflowrate(s₂)
+	
+		function f(t)
+			# Create a stream with other conditions fixed.
+			s = MaterialStream(ṁ, t, P, Y, s₁.pipeline)
+
+			# Check if with temperature `t` it matches `ĥ`.
+			return enthalpyflowrate(s) - ĥ
+		end
+
+		# Find new temperature starting from the top.
+		T = find_zero(f, max(s₁.T, s₂.T))
+
+		# Create resulting stream.
+		return MaterialStream(ṁ, T, P, Y, s₁.pipeline)
+	end
 end
 
-# ╔═╡ 26b92abc-9f78-4e4c-8e84-3e2af9d0588b
-struct Mix2
-	sin1::MaterialStream
-	sin2::MaterialStream
-	sout::MaterialStream
+# ╔═╡ 694b2733-2715-45b9-a153-4addc1f88e52
+let
+	# XXX: the behaviour in `LinRange` is different from what happens after
+	# one calls `ustrip` for a single value. Here outputs are already in K.
+	T = LinRange(0.0u"°C", 200.0u"°C", 1000+1)
+	H = get_air_enthalpy_function().(T)
 
-	function Mix2(sin1, sin2)
-		ṁ = sin1.ṁ + sin2.ṁ
+	cut = 100
+	hf = fit(ustrip(T), ustrip(H), 2; var = :T)
+	Hf = hf.(ustrip(T)[begin:cut:end])
 
-		# Y must consider that the same material can be
-		# present in both streams, so there is a bit more
-		# of coding here! FINISH!
-		# Y = [sin1.m]
-		# M = 
-		
-		h1 = enthalpyflowrate(sin1)
-		h2 = enthalpyflowrate(sin2)
+	f = Figure(size = (700, 400))
+	ax = Axis(f[1, 1]; title = string(hf))
+	lines!(ax, ustrip(T), ustrip(H) ./ 1000; color = :black)
+	scatter!(ax, ustrip(T)[begin:cut:end], Hf ./ 1000; color = :red)
+	ax.xlabel = "Temperature [K]"
+	ax.ylabel = "Enthalpy [kJ/kg]"
+	f
+end
 
-		# T =
-		# P =
-		
-		# MaterialStream(ṁ, T, P, Y, M)
-		return new(sin1, sin2, sin1)
-	end
+# ╔═╡ 5868861a-7b8c-4711-81c5-15fe4bc2d4b2
+let
+	T = 20u"°C"
+	P = 1.0u"atm"
+	
+	study_stream(ṁ) = ustrip.(get_stream_si_units(ṁ ,T, P))
+	
+	water   = Water()
+	clinker = Clinker()
+	air     = Air()
+
+	waterpipe  = StreamPipeline([water])
+	cementpipe = StreamPipeline([clinker, air])
+
+	ṁw, Tw, Pw = study_stream(900.0u"kg/hr")
+	ṁc, Tc, Pc = study_stream(500.0u"kg/hr")
+	ṁa, Ta, Pa = study_stream(250.0u"kg/hr")
+	
+	sw = MaterialStream(ṁw, Tw, Pw, [1.0], waterpipe)
+	sc = MaterialStream(ṁc, Tc, Pc, [1.0, 0.0], cementpipe)
+	sa = MaterialStream(ṁa, Ta, Pa, [0.0, 1.0], cementpipe)
+
+	sc + sa
 end
 
 # ╔═╡ c3abf986-a852-480d-a624-18d7631edcc7
@@ -308,11 +332,37 @@ function test_specific_heat(; T = [20u"°C"; 40u"°C"], atol = 0.005)
 	return c - (H[2] - H[1]) / (T[2] - T[1]) < atol * unit(c)
 end
 
+# ╔═╡ d2129783-2048-420b-9634-e46d741ee1d2
+begin
+	
+	function test_enthalpy(m, T, P)
+		pipe = StreamPipeline([m])
+		stream = MaterialStream(1.0, T, P, [1.0], pipe)
+		
+		h1 = enthalpy(m, T, P)
+		h2 = enthalpy(pipe, T, P, [1.0])
+		h3 = enthalpy(stream)
+		
+		result = h1 ≈ h2 ≈ h3
+		!result && @warn "Failed testing $(typeof(m))"
+		
+		return result
+	end
+
+	function test_enthalpy(; materials = [Water(), Clinker(), Air()])
+		return all(test_enthalpy.(materials, 293.15, 101325.0))
+	end
+		
+	@doc "Test enthalpy evaluations."
+	test_enthalpy
+end
+
 # ╔═╡ ffc9b07f-9639-4c77-a999-03807e3a520a
 let
 	@info "Running tests..."
 	
 	@assert test_specific_heat()
+	@assert test_enthalpy()
 end
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
@@ -323,6 +373,7 @@ ModelingToolkit = "961ee093-0014-501f-94e3-6117800e7a78"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 Polynomials = "f27b6e38-b328-58d1-80ce-0feddd5e7a45"
 Psychro = "9516f557-4a54-5a79-b954-c272e753c77a"
+Roots = "f2b01f46-fcfa-551c-844a-d8ac1e96c665"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 SteamTables = "43dc94dd-f011-5c5d-8ab2-5073432dc0ba"
 Thermodynamics = "b60c26fb-14c3-4610-9d3e-2d17fe7ff00c"
@@ -334,6 +385,7 @@ ModelingToolkit = "~8.75.0"
 PlutoUI = "~0.7.54"
 Polynomials = "~4.0.6"
 Psychro = "~0.3.0"
+Roots = "~2.1.2"
 SteamTables = "~1.4.1"
 Thermodynamics = "~0.11.2"
 Unitful = "~1.19.0"
@@ -345,7 +397,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.9.3"
 manifest_format = "2.0"
-project_hash = "afceec3ac7aa14a4178248559a42d4f323368925"
+project_hash = "01b73c3f9d588861746a6c6340cc59826efe28a6"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "41c37aa88889c171f1300ceac1313c06e891d245"
@@ -2163,9 +2215,9 @@ version = "0.4.1"
 
 [[deps.Roots]]
 deps = ["Accessors", "ChainRulesCore", "CommonSolve", "Printf"]
-git-tree-sha1 = "af540898b1e6ca7aa6ba7213c05052809c6c522a"
+git-tree-sha1 = "754acd3031a9f2eaf6632ba4850b1c01fe4460c1"
 uuid = "f2b01f46-fcfa-551c-844a-d8ac1e96c665"
-version = "2.1.0"
+version = "2.1.2"
 
     [deps.Roots.extensions]
     RootsForwardDiffExt = "ForwardDiff"
@@ -2807,19 +2859,18 @@ version = "3.5.0+0"
 
 # ╔═╡ Cell order:
 # ╟─d4189065-6aab-4920-bd21-22bc69f92ad5
-# ╠═6491e060-cf27-11ee-14d2-bbfe55d17ee8
+# ╟─6491e060-cf27-11ee-14d2-bbfe55d17ee8
 # ╟─3ddb3d01-9ae3-4beb-ab41-e2a57e0ecc12
 # ╟─bc62a1d5-aeb2-4bec-a22d-15499f54056f
 # ╟─855e9382-1edc-4865-9c13-19b52631fdd2
 # ╟─694b2733-2715-45b9-a153-4addc1f88e52
 # ╟─076e0734-a39c-4f60-ae95-fe62e8e61076
 # ╠═5868861a-7b8c-4711-81c5-15fe4bc2d4b2
-# ╠═7ff0dabc-831b-45f8-91f8-4969cf317d63
+# ╠═fb91bffc-78b2-46f9-a28d-bd42810440c3
 # ╟─ed994cb4-553d-4ec5-b36d-fa30d46373c8
 # ╟─5fb0b8ea-0d30-4496-9f66-dc70dfed94ed
-# ╠═233e95d3-9611-4fdf-b12f-3ce43434866d
-# ╠═e1c94f16-9d56-4965-86d1-abfc19195b87
-# ╠═26b92abc-9f78-4e4c-8e84-3e2af9d0588b
+# ╟─233e95d3-9611-4fdf-b12f-3ce43434866d
+# ╟─e1c94f16-9d56-4965-86d1-abfc19195b87
 # ╟─8358c1f0-3a5f-401a-9755-06e8a70acda9
 # ╟─e6f4b40c-a3b4-4da7-a252-085724901e8d
 # ╟─71c95469-a9d8-4bc0-919f-c56228e72264
@@ -2829,6 +2880,7 @@ version = "3.5.0+0"
 # ╟─fb68d662-30ed-4191-a634-b34192210bf0
 # ╟─b03e91ec-40b9-441c-bca5-e7d3e7e6f88a
 # ╟─212b9dad-ba96-4c1f-9e2f-d490d56d4f97
+# ╟─f1623dc0-3901-41aa-b398-15ca529c813e
 # ╟─dbfbd233-d64d-4d8e-96e6-b88e24eb2726
 # ╟─dae005f2-8b15-47ae-8170-e56e43b74996
 # ╟─9e7ff999-8fe7-4f34-9f5f-dfb09e17754a
@@ -2840,6 +2892,7 @@ version = "3.5.0+0"
 # ╟─59a8f15c-552e-47f7-9c33-5ca7ee340874
 # ╟─c3abf986-a852-480d-a624-18d7631edcc7
 # ╟─80a047ba-3469-4598-b000-d97ea9c75753
+# ╟─d2129783-2048-420b-9634-e46d741ee1d2
 # ╟─ffc9b07f-9639-4c77-a999-03807e3a520a
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

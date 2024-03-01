@@ -98,20 +98,6 @@ struct MaterialStream
 	pipeline::StreamPipeline
 end
 
-# ╔═╡ 59f5d9e0-12b9-49a5-9dee-b4e9e9a4b010
-struct CooledMill
-	product::MaterialStream
-	coolant::MaterialStream
-	power::EnergyStream
-	area::Float64
-	htc::Float64
-
-	function CooledMill(; product, coolant, power, area, htc)
-		
-		return new(product, coolant, power, area, htc)
-	end
-end
-
 # ╔═╡ 71c95469-a9d8-4bc0-919f-c56228e72264
 "Liquid water material."
 struct Water <: AbstractLiquidMaterial
@@ -190,55 +176,6 @@ struct Air <: AbstractGasMaterial
 	end
 end
 
-# ╔═╡ fb91bffc-78b2-46f9-a28d-bd42810440c3
-let
-	# Operating conditions during tests.
-	T = ustrip(uconvert(u"K", 5.0u"°C"))
-	P = ustrip(uconvert(u"Pa", 1.0u"atm"))
-
-	# Controlled flows.
-	m2 = ustrip(uconvert(u"kg/s", 500u"kg/hr"))
-	m1 = ustrip(uconvert(u"kg/s", 2400u"kg/hr"))
-
-	# TODO set mass flows.
-	m7 = ustrip(uconvert(u"kg/s", 0u"kg/hr"))
-	m9 = ustrip(uconvert(u"kg/s", 0u"kg/hr"))
-	
-	pm = ustrip(uconvert(u"W", 100u"kW"))
-	
-	# Materials used for mass and energy balance.
-	clinker = Clinker()
-	air     = Air()
-
-	# Individual proicess pipelines.
-	cool = StreamPipeline([air])
-	prod = StreamPipeline([clinker, air])
-
-	# Applied power at mill.
-	millingpower = EnergyStream(pm)
-	
-	# Clinker material stream.
-	s2 = MaterialStream(m2, T, P, [1.0, 0.0], prod)
-
-	# Milling air stream.
-	s1 = MaterialStream(m1, T, P, [0.0, 1.0], prod)
-	
-	# Air leaks in mill.
-	s7 = MaterialStream(m7, T, P, [0.0, 1.0], prod)
-	s9 = MaterialStream(m9, T, P, [0.0, 1.0], prod)
-
-	# mix = s2 + s1 + s7 + s9 + millingpower
-	# mix.T - 273.15
-
-	# mill = CooledMill(; 
-	# 	product = sum([s2, s1, s7, s9]),
-	# 	coolant = ,
-	# 	power   = millingpower,
-	# 	area,
-	# 	htc
-	# )
-end
-
 # ╔═╡ fb68d662-30ed-4191-a634-b34192210bf0
 begin
 	density(mat::AbstractMaterial, T, P) = error("Not implemented")
@@ -287,8 +224,12 @@ begin
 		return enthalpy(stream.pipeline, T, P, stream.Y)
 	end
 
-	function enthalpy(stream::MaterialStream)
-		return enthalpy(stream, stream.T, stream.P)
+	function enthalpy(stream::MaterialStream; kwargs...)
+		kwargs_dict = Dict(kwargs)
+		T = get(kwargs_dict, :T, stream.T)
+		P = get(kwargs_dict, :P, stream.P)
+		Y = get(kwargs_dict, :Y, stream.Y)
+		return enthalpy(stream.pipeline, T, P, Y)
 	end
 	
 	@doc "Evaluates the enthalpy of material [J/kg]."
@@ -411,6 +352,94 @@ let
 
 	sc + sa
 end;
+
+# ╔═╡ 59f5d9e0-12b9-49a5-9dee-b4e9e9a4b010
+struct CooledMill
+	product::MaterialStream
+	coolant::MaterialStream
+	power::EnergyStream
+	# area::Float64
+	# htc::Float64
+
+	function CooledMill(;
+			product,
+			coolant,
+			power,
+			model, 
+			kwargs...
+		)
+		product += power
+		
+		if model == :TARGET_COOLANT_TEMP
+			T_out = kwargs[:cool_out_temp]
+			ḣ_out = coolant.ṁ * enthalpy(coolant; T = T_out)
+			Δq = ḣ_out - enthalpyflowrate(coolant)
+			
+			product += EnergyStream(-1Δq)
+			# coolant += EnergyStream(+1Δq)
+		end
+
+		println(product.T-273.15)
+		println(coolant.T-273.15)
+		
+		return new(product, coolant, power)#, area, htc)
+	end
+end
+
+# ╔═╡ fb91bffc-78b2-46f9-a28d-bd42810440c3
+let
+	# Operating conditions during tests.
+	T = ustrip(uconvert(u"K", 5.0u"°C"))
+	P = ustrip(uconvert(u"Pa", 1.0u"atm"))
+
+	# Controlled flows.
+	m0 = ustrip(uconvert(u"kg/s", 900u"kg/hr"))
+	m2 = ustrip(uconvert(u"kg/s", 500u"kg/hr"))
+	m1 = ustrip(uconvert(u"kg/s", 2400u"kg/hr"))
+
+	# TODO set mass flows.
+	m7 = ustrip(uconvert(u"kg/s", 0u"kg/hr"))
+	m9 = ustrip(uconvert(u"kg/s", 0u"kg/hr"))
+	
+	pm = ustrip(uconvert(u"W", 100u"kW"))
+	
+	# Materials used for mass and energy balance.
+	air     = Air()
+	clinker = Clinker()
+	coolant = Water()
+	# coolant = Air()
+
+	# Individual proicess pipelines.
+	cool = StreamPipeline([coolant])
+	prod = StreamPipeline([clinker, air])
+
+	# Applied power at mill.
+	millingpower = EnergyStream(pm)
+
+	# Cooling material stream.
+	s0 = MaterialStream(m0, T, P, [1.0], cool)
+	
+	# Clinker material stream.
+	s2 = MaterialStream(m2, T, P, [1.0, 0.0], prod)
+
+	# Milling air stream.
+	s1 = MaterialStream(m1, T, P, [0.0, 1.0], prod)
+	
+	# Air leaks in mill.
+	s7 = MaterialStream(m7, T, P, [0.0, 1.0], prod)
+	s9 = MaterialStream(m9, T, P, [0.0, 1.0], prod)
+
+	# mix = s2 + s1 + s7 + s9 + millingpower
+	# mix.T - 273.15
+
+	mill = CooledMill(; 
+		product = sum([s2, s1, s7, s9]),
+		coolant = s0,
+		power   = millingpower,
+		model   = :TARGET_COOLANT_TEMP,
+		cool_out_temp = ustrip(uconvert(u"K", 40u"°C"))
+	)
+end
 
 # ╔═╡ c3abf986-a852-480d-a624-18d7631edcc7
 md"""

@@ -212,7 +212,8 @@ begin
 	enthalpy(mat::Clinker, T, P) = mat.h(T)
 
 	# NOTE: inputs in kJ/kg = f(MPa, K)
-	enthalpy(mat::Water, T, P) = 1.0e+03SpecificH(1.0e-06P, T)
+	# enthalpy(mat::Water, T, P) = 1.0e+03SpecificH(1.0e-06P, T)
+	enthalpy(mat::Water, T, P) = 4182.0T
 	
 	enthalpy(mat::Air, T, P) = mat.h(T)
 
@@ -354,36 +355,55 @@ let
 end;
 
 # ╔═╡ 59f5d9e0-12b9-49a5-9dee-b4e9e9a4b010
-struct CooledMill
+"Represents a crushing device with cooling system."
+struct CooledCrushingMill
 	product::MaterialStream
 	coolant::MaterialStream
 	power::EnergyStream
 	# area::Float64
 	# htc::Float64
 
-	function CooledMill(;
+	function CooledCrushingMill(;
 			product,
 			coolant,
 			power,
-			model, 
+			model,
+			verbose = true,
 			kwargs...
 		)
+
+		# Apply heat to the product stream.
 		product += power
-		
+
 		if model == :TARGET_COOLANT_TEMP
+			# Compute enthalpy change in cooling stream.
 			T_out = kwargs[:cool_out_temp]
 			ḣ_out = coolant.ṁ * enthalpy(coolant; T = T_out)
 			Δq = ḣ_out - enthalpyflowrate(coolant)
-			
+
+			# Correct energy in both streams.
 			product += EnergyStream(-1Δq)
-			# coolant += EnergyStream(+1Δq)
+			coolant += EnergyStream(+1Δq)
+
+			verbose && begin
+				rounder(v) = round(v; digits = 1)
+				
+				p = rounder(ustrip(uconvert(u"kW", Δq * u"W")))
+				T = rounder(ustrip(uconvert(u"°C", product.T * u"K")))
+				
+				@info """
+				CooledCrushingMill with model $(model)
+	
+				Heat extracted by cooling system..: $(p) kW
+				Product stream final temperature..: $(T) °C
+				"""
+			end
 		end
 
-		println(product.T-273.15)
-		println(coolant.T-273.15)
-		
-		return new(product, coolant, power)#, area, htc)
+		return new(product, coolant, power)
 	end
+
+	
 end
 
 # ╔═╡ fb91bffc-78b2-46f9-a28d-bd42810440c3
@@ -429,16 +449,15 @@ let
 	s7 = MaterialStream(m7, T, P, [0.0, 1.0], prod)
 	s9 = MaterialStream(m9, T, P, [0.0, 1.0], prod)
 
-	# mix = s2 + s1 + s7 + s9 + millingpower
-	# mix.T - 273.15
-
-	mill = CooledMill(; 
+	mill = CooledCrushingMill(; 
 		product = sum([s2, s1, s7, s9]),
 		coolant = s0,
 		power   = millingpower,
 		model   = :TARGET_COOLANT_TEMP,
+		# Model specific keyword arguments.
 		cool_out_temp = ustrip(uconvert(u"K", 40u"°C"))
 	)
+
 end
 
 # ╔═╡ c3abf986-a852-480d-a624-18d7631edcc7
@@ -2994,7 +3013,7 @@ version = "3.5.0+0"
 # ╟─233e95d3-9611-4fdf-b12f-3ce43434866d
 # ╟─e1c94f16-9d56-4965-86d1-abfc19195b87
 # ╟─e0202175-5b36-45ed-95fa-95016290bdf2
-# ╠═59f5d9e0-12b9-49a5-9dee-b4e9e9a4b010
+# ╟─59f5d9e0-12b9-49a5-9dee-b4e9e9a4b010
 # ╟─8358c1f0-3a5f-401a-9755-06e8a70acda9
 # ╟─e6f4b40c-a3b4-4da7-a252-085724901e8d
 # ╟─71c95469-a9d8-4bc0-919f-c56228e72264

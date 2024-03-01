@@ -64,6 +64,10 @@ struct EnergyStream
 	ḣ::Float64
 end
 
+# ╔═╡ d3fee54d-4fdf-4703-9bd6-911a73a07f41
+struct TransportPipeline
+end
+
 # ╔═╡ 8358c1f0-3a5f-401a-9755-06e8a70acda9
 md"""
 ### Materials
@@ -98,10 +102,25 @@ struct MaterialStream
 	pipeline::StreamPipeline
 end
 
+# ╔═╡ c4e10dbe-9f02-4156-aeba-8b3a4cdd4761
+struct SolidsSeparator
+	ϕ::Float64
+	solids::MaterialStream
+	others::MaterialStream
+	
+	function SolidsSeparator(s; ϕ = 1.0)
+
+		new(ϕ, solids, others)
+	end
+end
+
 # ╔═╡ 71c95469-a9d8-4bc0-919f-c56228e72264
 "Liquid water material."
 struct Water <: AbstractLiquidMaterial
 end
+
+# ╔═╡ 80049e85-fb3c-4973-9a24-2ca7f523f7a6
+Water() isa AbstractLiquidMaterial
 
 # ╔═╡ 31717fa3-09dd-4ebc-8a08-f485b5216b11
 "Solid clinker material."
@@ -416,23 +435,33 @@ let
 	m0 = ustrip(uconvert(u"kg/s", 900u"kg/hr"))
 	m2 = ustrip(uconvert(u"kg/s", 500u"kg/hr"))
 	m1 = ustrip(uconvert(u"kg/s", 2400u"kg/hr"))
+	m4 = ustrip(uconvert(u"kg/s", 250u"kg/hr"))
 
 	# TODO set mass flows.
 	m7 = ustrip(uconvert(u"kg/s", 0u"kg/hr"))
 	m9 = ustrip(uconvert(u"kg/s", 0u"kg/hr"))
-	
+
+	# Power applied to crusher.
 	pm = ustrip(uconvert(u"W", 100u"kW"))
-	
+
 	# Materials used for mass and energy balance.
 	air     = Air()
 	clinker = Clinker()
+	
 	coolant = Water()
+	cool_out_temp = ustrip(uconvert(u"K", 40u"°C"))
+	
 	# coolant = Air()
+	# cool_out_temp = ustrip(uconvert(u"K", 75u"°C"))
 
 	# Individual proicess pipelines.
 	cool = StreamPipeline([coolant])
 	prod = StreamPipeline([clinker, air])
 
+	####################
+	# CONTROLS
+	####################
+	
 	# Applied power at mill.
 	millingpower = EnergyStream(pm)
 
@@ -444,20 +473,40 @@ let
 
 	# Milling air stream.
 	s1 = MaterialStream(m1, T, P, [0.0, 1.0], prod)
+
+	# Separator air stream.
+	s4 = MaterialStream(m4, T, P, [0.0, 1.0], prod)
+
+	####################
+	# LEAKS
+	####################
 	
 	# Air leaks in mill.
 	s7 = MaterialStream(m7, T, P, [0.0, 1.0], prod)
 	s9 = MaterialStream(m9, T, P, [0.0, 1.0], prod)
 
+	####################
+	# ASSEMBLY
+	####################
+
+	# Inlet stream before recirculation.
+	meal = sum([s2, s1, s7, s9])
+
+	# TODO add recirculation here.
+	product = meal
+	
 	mill = CooledCrushingMill(; 
-		product = sum([s2, s1, s7, s9]),
+		product = product,
 		coolant = s0,
 		power   = millingpower,
 		model   = :TARGET_COOLANT_TEMP,
+
 		# Model specific keyword arguments.
-		cool_out_temp = ustrip(uconvert(u"K", 40u"°C"))
+		cool_out_temp = cool_out_temp
 	)
 
+	# Add separator air to product.
+	tosep = mill.product + s4
 end
 
 # ╔═╡ c3abf986-a852-480d-a624-18d7631edcc7
@@ -3014,8 +3063,11 @@ version = "3.5.0+0"
 # ╟─e1c94f16-9d56-4965-86d1-abfc19195b87
 # ╟─e0202175-5b36-45ed-95fa-95016290bdf2
 # ╟─59f5d9e0-12b9-49a5-9dee-b4e9e9a4b010
+# ╠═c4e10dbe-9f02-4156-aeba-8b3a4cdd4761
+# ╠═d3fee54d-4fdf-4703-9bd6-911a73a07f41
+# ╠═80049e85-fb3c-4973-9a24-2ca7f523f7a6
 # ╟─8358c1f0-3a5f-401a-9755-06e8a70acda9
-# ╟─e6f4b40c-a3b4-4da7-a252-085724901e8d
+# ╠═e6f4b40c-a3b4-4da7-a252-085724901e8d
 # ╟─71c95469-a9d8-4bc0-919f-c56228e72264
 # ╟─31717fa3-09dd-4ebc-8a08-f485b5216b11
 # ╟─c53fa179-986b-46b4-8c88-ccdb4378e99f

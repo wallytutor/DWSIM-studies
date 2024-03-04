@@ -64,10 +64,6 @@ struct EnergyStream
 	ḣ::Float64
 end
 
-# ╔═╡ d3fee54d-4fdf-4703-9bd6-911a73a07f41
-struct TransportPipeline
-end
-
 # ╔═╡ 8358c1f0-3a5f-401a-9755-06e8a70acda9
 md"""
 ### Materials
@@ -373,6 +369,16 @@ let
 	sc + sa
 end;
 
+# ╔═╡ 5c204dd1-3c56-4942-8cd6-f1b894f114e8
+"Heat exchanged with stream to match outlet temperature."
+function exchanged_heat(s::MaterialStream, T_out)
+	# The rate of heat leaving the system [kg/s * J/kg = W].
+	ḣ_out = s.ṁ * enthalpy(s; T = T_out)
+
+	# The change of rate across the system [W].
+	return ḣ_out - enthalpyflowrate(s)
+end
+
 # ╔═╡ 59f5d9e0-12b9-49a5-9dee-b4e9e9a4b010
 "Represents a crushing device with cooling system."
 struct CooledCrushingMill
@@ -396,9 +402,7 @@ struct CooledCrushingMill
 
 		if model == :TARGET_COOLANT_TEMP
 			# Compute enthalpy change in cooling stream.
-			T_out = kwargs[:cool_out_temp]
-			ḣ_out = coolant.ṁ * enthalpy(coolant; T = T_out)
-			Δq = ḣ_out - enthalpyflowrate(coolant)
+			Δq = exchanged_heat(coolant, kwargs[:temp_out])
 
 			# Correct energy in both streams.
 			product += EnergyStream(-1Δq)
@@ -421,8 +425,38 @@ struct CooledCrushingMill
 
 		return new(product, coolant, power)
 	end
+end
 
-	
+# ╔═╡ d3fee54d-4fdf-4703-9bd6-911a73a07f41
+"Represents a pipeline with heat transfer."
+struct TransportPipeline
+	product::MaterialStream
+	power::EnergyStream
+	# ⌀::Number
+	# L::Number
+	# k::Number
+
+	function TransportPipeline(;
+			product,
+			model,
+			verbose = true,
+			kwargs...
+		)
+		power = EnergyStream(0.0)
+		
+		if model == :TARGET_EXIT_TEMP
+			# Compute enthalpy change in cooling stream.
+			Δq = exchanged_heat(product, kwargs[:temp_out])
+
+			# Stream of energy to correct system temperature.
+			power = EnergyStream(Δq)
+			
+			# Correct energy in both streams.
+			product += power
+		end
+
+		return new(product, power)
+	end
 end
 
 # ╔═╡ fb91bffc-78b2-46f9-a28d-bd42810440c3
@@ -449,12 +483,21 @@ let
 	clinker = Clinker()
 	
 	coolant = Water()
-	cool_out_temp = ustrip(uconvert(u"K", 40u"°C"))
+	temp_out_cool = ustrip(uconvert(u"K", 40u"°C"))
 	
 	# coolant = Air()
-	# cool_out_temp = ustrip(uconvert(u"K", 75u"°C"))
+	# temp_out_cool = ustrip(uconvert(u"K", 75u"°C"))
 
-	# Individual proicess pipelines.
+	####################
+	# MEASUREMENTS
+	####################
+
+	temp_before_sep = ustrip(uconvert(u"K", 73u"°C"))
+
+	####################
+	# PIPELINES
+	####################
+
 	cool = StreamPipeline([coolant])
 	prod = StreamPipeline([clinker, air])
 
@@ -484,7 +527,7 @@ let
 	# Air leaks in mill.
 	s7 = MaterialStream(m7, T, P, [0.0, 1.0], prod)
 	s9 = MaterialStream(m9, T, P, [0.0, 1.0], prod)
-
+	
 	####################
 	# ASSEMBLY
 	####################
@@ -496,17 +539,25 @@ let
 	product = meal
 	
 	mill = CooledCrushingMill(; 
-		product = product,
-		coolant = s0,
-		power   = millingpower,
-		model   = :TARGET_COOLANT_TEMP,
-
-		# Model specific keyword arguments.
-		cool_out_temp = cool_out_temp
+		product  = product,
+		coolant  = s0,
+		power    = millingpower,
+		model    = :TARGET_COOLANT_TEMP,
+		temp_out = temp_out_cool
 	)
 
+	# Loose some heat in vertical pipeline.
+	tosep1 = TransportPipeline(;
+		product  = mill.product,
+		model    = :TARGET_EXIT_TEMP,
+		verbose  = true,
+		temp_out = temp_before_sep
+	)
+				
 	# Add separator air to product.
-	tosep = mill.product + s4
+	tosep = tosep1.product + s4
+
+	tosep.T - TREF
 end
 
 # ╔═╡ c3abf986-a852-480d-a624-18d7631edcc7
@@ -3063,8 +3114,8 @@ version = "3.5.0+0"
 # ╟─e1c94f16-9d56-4965-86d1-abfc19195b87
 # ╟─e0202175-5b36-45ed-95fa-95016290bdf2
 # ╟─59f5d9e0-12b9-49a5-9dee-b4e9e9a4b010
+# ╟─d3fee54d-4fdf-4703-9bd6-911a73a07f41
 # ╠═c4e10dbe-9f02-4156-aeba-8b3a4cdd4761
-# ╠═d3fee54d-4fdf-4703-9bd6-911a73a07f41
 # ╠═80049e85-fb3c-4973-9a24-2ca7f523f7a6
 # ╟─8358c1f0-3a5f-401a-9755-06e8a70acda9
 # ╠═e6f4b40c-a3b4-4da7-a252-085724901e8d
@@ -3079,6 +3130,7 @@ version = "3.5.0+0"
 # ╟─dbfbd233-d64d-4d8e-96e6-b88e24eb2726
 # ╟─dae005f2-8b15-47ae-8170-e56e43b74996
 # ╟─9e7ff999-8fe7-4f34-9f5f-dfb09e17754a
+# ╟─5c204dd1-3c56-4942-8cd6-f1b894f114e8
 # ╟─973aa28a-71bb-4149-8265-6a6ccbdf414c
 # ╟─b99a067e-e166-4e75-a538-5c6d5334a25e
 # ╟─043062dc-dfda-4c33-a35f-95cd2a2c78a0

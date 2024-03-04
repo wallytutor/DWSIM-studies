@@ -48,6 +48,9 @@ md"""
 ## Creating streams
 """
 
+# ╔═╡ e1430a25-fda5-4a39-af28-6aa5066cc4e7
+# filter(x-> x isa AbstractSolidMaterial, tosep.pipeline)
+
 # ╔═╡ ed994cb4-553d-4ec5-b36d-fa30d46373c8
 md"""
 ## Implementation
@@ -266,7 +269,8 @@ end
 begin
 	@info "Overloaded Base methods."
 	
-	function Base.:+(s₁::MaterialStream, s₂::MaterialStream)
+	function Base.:+(s₁::MaterialStream, s₂::MaterialStream;
+	                 verbose = false, message = "")
 		# Can only mix streams using same material pipeline.
 		@assert s₁.pipeline == s₂.pipeline
 
@@ -299,7 +303,25 @@ begin
 		T = find_zero(f, max(s₁.T, s₂.T))
 
 		# Create resulting stream.
-		return MaterialStream(ṁ, T, P, Y, s₁.pipeline)
+		sₒ = MaterialStream(ṁ, T, P, Y, s₁.pipeline)
+		
+		verbose && begin
+			rounder(v) = round(v; digits = 1)
+			T1 = rounder(ustrip(uconvert(u"°C", s₁.T * u"K")))
+			T2 = rounder(ustrip(uconvert(u"°C", s₂.T * u"K")))
+			To = rounder(ustrip(uconvert(u"°C", sₒ.T * u"K")))
+
+			# TODO make more informative!
+			@info """
+			MaterialStream addition (+) $(message)
+
+			First stream temperature..........: $(T1) °C
+			Second stream temperature.........: $(T2) °C
+			Resulting stream temperature......: $(To) °C
+			"""
+		end
+		
+		return sₒ
 	end
 
 	function Base.:+(s::MaterialStream, e::EnergyStream)
@@ -562,7 +584,7 @@ struct CooledCrushingMill
 end
 
 # ╔═╡ fb91bffc-78b2-46f9-a28d-bd42810440c3
-let
+tosep = let
 	# Operating conditions during tests.
 	T = ustrip(uconvert(u"K", 5.0u"°C"))
 	P = ustrip(uconvert(u"Pa", 1.0u"atm"))
@@ -655,11 +677,14 @@ let
 		verbose  = true,
 		temp_out = temp_before_sep
 	)
-				
-	# Add separator air to product.
-	tosep = tosep1.product + s4
 
-	tosep.T - TREF
+	# TODO implement add() instead!
+	# Add separator air to product.
+	tosep = (+)(tosep1.product, s4; verbose = true,
+	            message = "separator input stream")
+
+	# tosep.T - TREF
+	tosep
 end
 
 # ╔═╡ c3abf986-a852-480d-a624-18d7631edcc7
@@ -3210,6 +3235,7 @@ version = "3.5.0+0"
 # ╟─076e0734-a39c-4f60-ae95-fe62e8e61076
 # ╟─5868861a-7b8c-4711-81c5-15fe4bc2d4b2
 # ╠═fb91bffc-78b2-46f9-a28d-bd42810440c3
+# ╠═e1430a25-fda5-4a39-af28-6aa5066cc4e7
 # ╟─ed994cb4-553d-4ec5-b36d-fa30d46373c8
 # ╟─5fb0b8ea-0d30-4496-9f66-dc70dfed94ed
 # ╟─233e95d3-9611-4fdf-b12f-3ce43434866d

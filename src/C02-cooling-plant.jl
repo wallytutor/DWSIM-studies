@@ -49,7 +49,8 @@ md"""
 """
 
 # ╔═╡ e1430a25-fda5-4a39-af28-6aa5066cc4e7
-# filter(x-> x isa AbstractSolidMaterial, tosep.pipeline)
+# filter(x-> x isa AbstractSolidMaterial, tosep.pipeline.materials)
+# tosep.pipeline.materials[1] isa AbstractSolidMaterial
 
 # ╔═╡ ed994cb4-553d-4ec5-b36d-fa30d46373c8
 md"""
@@ -656,8 +657,12 @@ tosep = let
 	# ASSEMBLY
 	####################
 
+	# TODO implement add() instead!
 	# Inlet stream before recirculation.
-	meal = sum([s2, s1, s7, s9])
+	sm = (+)(s2, s1, verbose = false, message = "clinker and milling air")
+	sm = (+)(sm, s7, verbose = false, message = "leak through (7)")
+	sm = (+)(sm, s9, verbose = false, message = "leak through (9)")
+	meal = sm
 
 	# TODO add recirculation here.
 	product = meal
@@ -678,7 +683,6 @@ tosep = let
 		temp_out = temp_before_sep
 	)
 
-	# TODO implement add() instead!
 	# Add separator air to product.
 	tosep = (+)(tosep1.product, s4; verbose = true,
 	            message = "separator input stream")

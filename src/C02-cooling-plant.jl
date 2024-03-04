@@ -106,7 +106,7 @@ struct SolidsSeparator
 	
 	function SolidsSeparator(s; ϕ = 1.0)
 
-		new(ϕ, solids, others)
+		return new(ϕ, solids, others)
 	end
 end
 
@@ -429,7 +429,28 @@ struct CooledCrushingMill
 end
 
 # ╔═╡ d3fee54d-4fdf-4703-9bd6-911a73a07f41
-"Represents a pipeline with heat transfer."
+""" Represents a pipeline with heat transfer.
+
+Models
+------
+1. `:TARGET_EXIT_TEMP` evaluates the heat transfer lost to environment \
+  provided a target final stream temperature given by keyword argument \
+  `temp_out`. Product temperature is updated through an `EnergyStream` \
+  built with energy exchange computed through `exchanged_heat`, so that \
+  numerical value can be slightly different from target value.
+
+To-do's
+-------
+- Implement heat transfer losses through a convective heat transfer
+  coefficient (HTC) computed from a suitable Nusselt number, thus
+  enabling the use of pipeline in *simulation* mode.
+
+Attributes
+----------
+
+- `product::MaterialStream`, the output product stream.
+- `power::EnergyStream`, the heat exchanged in pipeline.
+"""
 struct TransportPipeline
 	product::MaterialStream
 	power::EnergyStream

@@ -48,10 +48,6 @@ md"""
 ## Creating streams
 """
 
-# ╔═╡ e1430a25-fda5-4a39-af28-6aa5066cc4e7
-# filter(x-> x isa AbstractSolidMaterial, tosep.pipeline.materials)
-# tosep.pipeline.materials[1] isa AbstractSolidMaterial
-
 # ╔═╡ ed994cb4-553d-4ec5-b36d-fa30d46373c8
 md"""
 ## Implementation
@@ -84,7 +80,11 @@ begin
 	abstract type AbstractSolidMaterial <: AbstractMaterial end
 
 	abstract type AbstractGasMaterial <: AbstractMaterial end
-end
+
+	issolid(m::AbstractMaterial)  = m isa AbstractSolidMaterial
+	isliquid(m::AbstractMaterial) = m isa AbstractLiquidMaterial
+	isgas(m::AbstractMaterial)    = m isa AbstractGasMaterial
+end;
 
 # ╔═╡ 233e95d3-9611-4fdf-b12f-3ce43434866d
 "Array of materials to include in a stream."
@@ -102,25 +102,10 @@ struct MaterialStream
 	pipeline::StreamPipeline
 end
 
-# ╔═╡ c4e10dbe-9f02-4156-aeba-8b3a4cdd4761
-struct SolidsSeparator
-	ϕ::Float64
-	solids::MaterialStream
-	others::MaterialStream
-	
-	function SolidsSeparator(s; ϕ = 1.0)
-
-		return new(ϕ, solids, others)
-	end
-end
-
 # ╔═╡ 71c95469-a9d8-4bc0-919f-c56228e72264
 "Liquid water material."
 struct Water <: AbstractLiquidMaterial
 end
-
-# ╔═╡ 80049e85-fb3c-4973-9a24-2ca7f523f7a6
-Water() isa AbstractLiquidMaterial
 
 # ╔═╡ 31717fa3-09dd-4ebc-8a08-f485b5216b11
 "Solid clinker material."
@@ -137,6 +122,10 @@ end
 md"""
 ### Methods
 """
+
+# ╔═╡ f344ac3d-d199-4f22-a7a3-6ca9de6448e3
+"Mass flow rate per species in stream."
+mass_flow_spec(s) = s.ṁ * s.Y
 
 # ╔═╡ dbfbd233-d64d-4d8e-96e6-b88e24eb2726
 md"""
@@ -400,6 +389,58 @@ let
 	sc + sa
 end;
 
+# ╔═╡ c4e10dbe-9f02-4156-aeba-8b3a4cdd4761
+""" Represents a solids separator with efficiency ϕ.
+
+Attributes
+----------
+
+- `ϕ::Float64`, solids separation efficiency.
+- `source::MaterialStream`, stream to be separated.
+- `solids::MaterialStream`, solids stream.
+- `others::MaterialStream`, remaining stream.
+"""
+struct SolidsSeparator
+	ϕ::Float64
+	source::MaterialStream
+	solids::MaterialStream
+	others::MaterialStream
+	
+	function SolidsSeparator(source; ϕ = 1.0)
+		# Retrieve elements kept constant.
+		T, P, pipe = source.T, source.P, source.pipeline
+		
+		# Retrieve array of solids mass fractions, zeroeing other materials.
+		Ys0 = map((m, Y)->issolid(m) ? Y : 0, pipe.materials, source.Y)
+	
+		# The mass flow of split solids stream corresponds to the mass flow
+		# of solids multiplied by the separation efficiency of separator.
+		m_sol = source.ṁ * sum(Ys0) * ϕ
+	
+		# The mass flow of secondary stream (recirculating solids and other
+		# phases) is the total nass flow minus separated solids.
+		m_oth = source.ṁ - m_sol
+	
+		# Mass flow rates of each species in original flow.
+		mk0 = source.ṁ * source.Y
+	
+		# For solids we multiply their total flow rate by the renormalized
+		# mass fractions of individual species, balance for other stream.
+		mk1 = m_sol * Ys0 ./ sum(Ys0)
+		mk2 = mk0 .- mk1
+	
+		# Mass fractions are recomputed for each stream.
+		Ys1 = mk1 / m_sol
+		Ys2 = mk2 / m_oth
+
+		# Create new streamsp
+		solids = MaterialStream(m_sol, T, P, Ys1, pipe)
+		others = MaterialStream(m_oth, T, P, Ys2, pipe)
+		
+		return new(ϕ, source, solids, others)
+	end
+end
+
 # ╔═╡ 5c204dd1-3c56-4942-8cd6-f1b894f114e8
 "Heat exchanged with stream to match outlet temperature."
 function exchanged_heat(s::MaterialStream, T_out)
@@ -603,6 +644,9 @@ tosep = let
 	# Power applied to crusher.
 	pm = ustrip(uconvert(u"W", 100u"kW"))
 
+	# Solids separation efficiency.
+	ϕsep = 0.6275
+	
 	# Materials used for mass and energy balance.
 	air     = Air()
 	clinker = Clinker()
@@ -664,31 +708,44 @@ tosep = let
 	sm = (+)(sm, s9, verbose = false, message = "leak through (9)")
 	meal = sm
 
-	# TODO add recirculation here.
-	product = meal
+	# Dummy recirculation for initial loop.
+	recirc = MaterialStream(0.0, T, P, [1.0, 0.0], prod)
+
+	for trial in 1:100
+		# Add recirculation here.
+		product = meal + recirc
+		
+		# Add crushing energy and cool down system.
+		mill = CooledCrushingMill(; 
+			product  = product,
+			coolant  = s0,
+			power    = millingpower,
+			model    = :TARGET_COOLANT_TEMP,
+			verbose  = false,
+			temp_out = temp_out_cool
+		)
 	
-	mill = CooledCrushingMill(; 
-		product  = product,
-		coolant  = s0,
-		power    = millingpower,
-		model    = :TARGET_COOLANT_TEMP,
-		temp_out = temp_out_cool
-	)
-
-	# Loose some heat in vertical pipeline.
-	tosep1 = TransportPipeline(;
-		product  = mill.product,
-		model    = :TARGET_EXIT_TEMP,
-		verbose  = true,
-		temp_out = temp_before_sep
-	)
-
-	# Add separator air to product.
-	tosep = (+)(tosep1.product, s4; verbose = true,
-	            message = "separator input stream")
-
-	# tosep.T - TREF
-	tosep
+		# Loose some heat in vertical pipeline.
+		tosep1 = TransportPipeline(;
+			product  = mill.product,
+			model    = :TARGET_EXIT_TEMP,
+			verbose  = false,
+			temp_out = temp_before_sep
+		)
+	
+		# Add separator air to product.
+		tosep = (+)(tosep1.product, s4; verbose = false,
+		            message = "separator input stream")
+	
+		sep = SolidsSeparator(tosep; ϕ = ϕsep)
+		
+		recirc = sep.solids
+		if trial % 10 == 0
+			@info recirc.ṁ * 3600
+		end
+	end
+	
+	@info recirc
 end
 
 # ╔═╡ c3abf986-a852-480d-a624-18d7631edcc7
@@ -729,12 +786,28 @@ begin
 	test_enthalpy
 end
 
+# ╔═╡ 858981f9-ea7a-4413-ab89-00d8987eb7d3
+"Test mass balance in solids separator."
+function test_solids_separator()
+	pipe = StreamPipeline([Clinker(), Air()])
+	source = MaterialStream(1.0, TREF, PREF, [0.2, 0.8], pipe)
+	splits = SolidsSeparator(source; ϕ = 0.5)
+	
+	m0 = mass_flow_spec(source)
+	m1 = mass_flow_spec(splits.solids)
+	m2 = mass_flow_spec(splits.others)
+	
+	return sum(m1 + m2 - m0) ≈ 0.0
+end
+
+
 # ╔═╡ ffc9b07f-9639-4c77-a999-03807e3a520a
 let
 	@info "Running tests..."
 	
 	@assert test_specific_heat()
 	@assert test_enthalpy()
+	@assert test_solids_separator()
 end
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
@@ -3239,16 +3312,14 @@ version = "3.5.0+0"
 # ╟─076e0734-a39c-4f60-ae95-fe62e8e61076
 # ╟─5868861a-7b8c-4711-81c5-15fe4bc2d4b2
 # ╠═fb91bffc-78b2-46f9-a28d-bd42810440c3
-# ╠═e1430a25-fda5-4a39-af28-6aa5066cc4e7
 # ╟─ed994cb4-553d-4ec5-b36d-fa30d46373c8
 # ╟─5fb0b8ea-0d30-4496-9f66-dc70dfed94ed
 # ╟─233e95d3-9611-4fdf-b12f-3ce43434866d
-# ╠═e1c94f16-9d56-4965-86d1-abfc19195b87
+# ╟─e1c94f16-9d56-4965-86d1-abfc19195b87
 # ╟─e0202175-5b36-45ed-95fa-95016290bdf2
 # ╟─d3fee54d-4fdf-4703-9bd6-911a73a07f41
 # ╟─59f5d9e0-12b9-49a5-9dee-b4e9e9a4b010
-# ╠═c4e10dbe-9f02-4156-aeba-8b3a4cdd4761
-# ╠═80049e85-fb3c-4973-9a24-2ca7f523f7a6
+# ╟─c4e10dbe-9f02-4156-aeba-8b3a4cdd4761
 # ╟─8358c1f0-3a5f-401a-9755-06e8a70acda9
 # ╟─e6f4b40c-a3b4-4da7-a252-085724901e8d
 # ╟─71c95469-a9d8-4bc0-919f-c56228e72264
@@ -3258,6 +3329,7 @@ version = "3.5.0+0"
 # ╟─fb68d662-30ed-4191-a634-b34192210bf0
 # ╟─b03e91ec-40b9-441c-bca5-e7d3e7e6f88a
 # ╟─212b9dad-ba96-4c1f-9e2f-d490d56d4f97
+# ╟─f344ac3d-d199-4f22-a7a3-6ca9de6448e3
 # ╟─f1623dc0-3901-41aa-b398-15ca529c813e
 # ╟─dbfbd233-d64d-4d8e-96e6-b88e24eb2726
 # ╟─dae005f2-8b15-47ae-8170-e56e43b74996
@@ -3272,6 +3344,7 @@ version = "3.5.0+0"
 # ╟─c3abf986-a852-480d-a624-18d7631edcc7
 # ╟─80a047ba-3469-4598-b000-d97ea9c75753
 # ╟─d2129783-2048-420b-9634-e46d741ee1d2
+# ╟─858981f9-ea7a-4413-ab89-00d8987eb7d3
 # ╟─ffc9b07f-9639-4c77-a999-03807e3a520a
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

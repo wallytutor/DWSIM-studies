@@ -264,7 +264,7 @@ end
 
 # ╔═╡ f1623dc0-3901-41aa-b398-15ca529c813e
 begin
-	@info "Overloaded Base:+ for mixing MaterialStream's."
+	@info "Overloaded Base methods."
 	
 	function Base.:+(s₁::MaterialStream, s₂::MaterialStream)
 		# Can only mix streams using same material pipeline.
@@ -319,6 +319,14 @@ begin
 
 		# Create resulting stream.
 		return MaterialStream(s.ṁ, T, s.P, s.Y, s.pipeline)
+	end
+
+	function Base.:-(e₁::EnergyStream, e₂::EnergyStream)
+		return EnergyStream(e₁.ḣ - e₂.ḣ)
+	end
+	
+	function Base.:+(e₁::EnergyStream, e₂::EnergyStream)
+		return EnergyStream(e₁.ḣ + e₂.ḣ)
 	end
 end
 
@@ -379,55 +387,6 @@ function exchanged_heat(s::MaterialStream, T_out)
 	return ḣ_out - enthalpyflowrate(s)
 end
 
-# ╔═╡ 59f5d9e0-12b9-49a5-9dee-b4e9e9a4b010
-"Represents a crushing device with cooling system."
-struct CooledCrushingMill
-	product::MaterialStream
-	coolant::MaterialStream
-	power::EnergyStream
-	# area::Float64
-	# htc::Float64
-
-	function CooledCrushingMill(;
-			product,
-			coolant,
-			power,
-			model,
-			verbose = true,
-			kwargs...
-		)
-		# Initialize values.
-		Δq = 0.0
-		
-		# Apply heat to the product stream.
-		product += power
-
-		if model == :TARGET_COOLANT_TEMP
-			# Compute enthalpy change in cooling stream.
-			Δq = exchanged_heat(coolant, kwargs[:temp_out])
-
-			# Correct energy in both streams.
-			product += EnergyStream(-1Δq)
-			coolant += EnergyStream(+1Δq)
-		end
-
-		verbose && begin
-			rounder(v) = round(v; digits = 1)
-			p = rounder(ustrip(uconvert(u"kW", Δq * u"W")))
-			T = rounder(ustrip(uconvert(u"°C", product.T * u"K")))
-			
-			@info """
-			CooledCrushingMill with model $(model)
-
-			Heat extracted by cooling system..: $(p) kW
-			Product stream final temperature..: $(T) °C
-			"""
-		end
-		
-		return new(product, coolant, power)
-	end
-end
-
 # ╔═╡ d3fee54d-4fdf-4703-9bd6-911a73a07f41
 """ Represents a pipeline with heat transfer.
 
@@ -464,12 +423,19 @@ struct TransportPipeline
 			verbose = true,
 			kwargs...
 		)
-		# Initialize values.
+		##########
+		# INITIAL
+		##########
+		
 		Δq = 0.0
 		power = EnergyStream(Δq)
+
+		##########
+		# MODEL
+		##########
 		
 		if model == :TARGET_EXIT_TEMP
-			# Compute enthalpy change in cooling stream.
+			# Compute enthalpy change with environment.
 			Δq = exchanged_heat(product, kwargs[:temp_out])
 
 			# Stream of energy to correct system temperature.
@@ -479,6 +445,10 @@ struct TransportPipeline
 			product += power
 		end
 
+		##########
+		# POST
+		##########
+		
 		verbose && begin
 			rounder(v) = round(v; digits = 1)
 			p = rounder(ustrip(uconvert(u"kW", Δq * u"W")))
@@ -492,7 +462,102 @@ struct TransportPipeline
 			"""
 		end
 
+		##########
+		# NEW
+		##########
+		
 		return new(product, power)
+	end
+end
+
+# ╔═╡ 59f5d9e0-12b9-49a5-9dee-b4e9e9a4b010
+""" Represents a crushing device with cooling system.
+
+Models
+------
+1. `:TARGET_COOLANT_TEMP` evaluates the heat transfer lost to coolant \
+  provided a target final stream temperature given by keyword argument \
+  `temp_out`. Product temperature is updated through an `EnergyStream` \
+  built with energy exchange computed through `exchanged_heat`, so that \
+  numerical value can be slightly different from target value.
+
+To-do's
+-------
+- Implement heat exchange coefficient and geometric features to that
+  the model can be used in *simulation* mode.
+
+Attributes
+----------
+
+- `product::MaterialStream`, the output product stream.
+- `coolant::MaterialStream`, the output coolant stream.
+- `power::EnergyStream`, the applied crushing power.
+- `loss::EnergyStream`, the heat exchanged with coolant.
+
+"""
+struct CooledCrushingMill
+	product::MaterialStream
+	coolant::MaterialStream
+	power::EnergyStream
+	loss::EnergyStream
+	# area::Float64
+	# htc::Float64
+
+	function CooledCrushingMill(;
+			product,
+			coolant,
+			power,
+			model,
+			verbose = true,
+			kwargs...
+		)
+		##########
+		# INITIAL
+		##########
+		
+		Δq = 0.0
+		loss = EnergyStream(Δq)
+
+		##########
+		# MODEL
+		##########
+		
+		if model == :TARGET_COOLANT_TEMP
+			# Compute enthalpy change in cooling stream.
+			Δq = exchanged_heat(coolant, kwargs[:temp_out])
+
+			# Stream of energy to correct system temperature.
+			loss = EnergyStream(Δq)
+			
+			# Correct energy in both streams.
+			product += power - loss
+			coolant += loss
+		end
+
+		##########
+		# POST
+		##########
+		
+		verbose && begin
+			rounder(v) = round(v; digits = 1)
+			Q = rounder(ustrip(uconvert(u"kW", power.ḣ * u"W")))
+			p = rounder(ustrip(uconvert(u"kW", Δq * u"W")))
+			T = rounder(ustrip(uconvert(u"°C", product.T * u"K")))
+			
+			@info """
+			CooledCrushingMill with model $(model)
+
+			Power applied to product stream...: $(Q) kW
+			Heat extracted by cooling system..: $(p) kW
+			Product stream final temperature..: $(T) °C
+			"""
+		end
+
+		##########
+		# NEW
+		##########
+		
+		return new(product, coolant, power, loss)
 	end
 end
 
@@ -3148,14 +3213,14 @@ version = "3.5.0+0"
 # ╟─ed994cb4-553d-4ec5-b36d-fa30d46373c8
 # ╟─5fb0b8ea-0d30-4496-9f66-dc70dfed94ed
 # ╟─233e95d3-9611-4fdf-b12f-3ce43434866d
-# ╟─e1c94f16-9d56-4965-86d1-abfc19195b87
+# ╠═e1c94f16-9d56-4965-86d1-abfc19195b87
 # ╟─e0202175-5b36-45ed-95fa-95016290bdf2
-# ╟─59f5d9e0-12b9-49a5-9dee-b4e9e9a4b010
 # ╟─d3fee54d-4fdf-4703-9bd6-911a73a07f41
+# ╟─59f5d9e0-12b9-49a5-9dee-b4e9e9a4b010
 # ╠═c4e10dbe-9f02-4156-aeba-8b3a4cdd4761
 # ╠═80049e85-fb3c-4973-9a24-2ca7f523f7a6
 # ╟─8358c1f0-3a5f-401a-9755-06e8a70acda9
-# ╠═e6f4b40c-a3b4-4da7-a252-085724901e8d
+# ╟─e6f4b40c-a3b4-4da7-a252-085724901e8d
 # ╟─71c95469-a9d8-4bc0-919f-c56228e72264
 # ╟─31717fa3-09dd-4ebc-8a08-f485b5216b11
 # ╟─c53fa179-986b-46b4-8c88-ccdb4378e99f

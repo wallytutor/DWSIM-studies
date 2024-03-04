@@ -396,7 +396,9 @@ struct CooledCrushingMill
 			verbose = true,
 			kwargs...
 		)
-
+		# Initialize values.
+		Δq = 0.0
+		
 		# Apply heat to the product stream.
 		product += power
 
@@ -407,22 +409,21 @@ struct CooledCrushingMill
 			# Correct energy in both streams.
 			product += EnergyStream(-1Δq)
 			coolant += EnergyStream(+1Δq)
-
-			verbose && begin
-				rounder(v) = round(v; digits = 1)
-				
-				p = rounder(ustrip(uconvert(u"kW", Δq * u"W")))
-				T = rounder(ustrip(uconvert(u"°C", product.T * u"K")))
-				
-				@info """
-				CooledCrushingMill with model $(model)
-	
-				Heat extracted by cooling system..: $(p) kW
-				Product stream final temperature..: $(T) °C
-				"""
-			end
 		end
 
+		verbose && begin
+			rounder(v) = round(v; digits = 1)
+			p = rounder(ustrip(uconvert(u"kW", Δq * u"W")))
+			T = rounder(ustrip(uconvert(u"°C", product.T * u"K")))
+			
+			@info """
+			CooledCrushingMill with model $(model)
+
+			Heat extracted by cooling system..: $(p) kW
+			Product stream final temperature..: $(T) °C
+			"""
+		end
+		
 		return new(product, coolant, power)
 	end
 end
@@ -442,7 +443,9 @@ struct TransportPipeline
 			verbose = true,
 			kwargs...
 		)
-		power = EnergyStream(0.0)
+		# Initialize values.
+		Δq = 0.0
+		power = EnergyStream(Δq)
 		
 		if model == :TARGET_EXIT_TEMP
 			# Compute enthalpy change in cooling stream.
@@ -453,6 +456,19 @@ struct TransportPipeline
 			
 			# Correct energy in both streams.
 			product += power
+		end
+
+		verbose && begin
+			rounder(v) = round(v; digits = 1)
+			p = rounder(ustrip(uconvert(u"kW", Δq * u"W")))
+			T = rounder(ustrip(uconvert(u"°C", product.T * u"K")))
+			
+			@info """
+			TransportPipeline with model $(model)
+
+			Heat loss to environment..........: $(p) kW
+			Product stream final temperature..: $(T) °C
+			"""
 		end
 
 		return new(product, power)

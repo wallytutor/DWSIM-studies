@@ -61,13 +61,17 @@ md"""
 ## Current air cooling
 """
 
-# ╔═╡ 6ecea6d3-18ea-484e-8a4f-b78a88589917
-struct AirCooledCrusher
-end
+# ╔═╡ 259238bf-7fd4-487c-999f-f864ebe472f6
+
 
 # ╔═╡ ed994cb4-553d-4ec5-b36d-fa30d46373c8
 md"""
 ## Implementation
+"""
+
+# ╔═╡ 88427bae-eeed-418b-acbe-f76b679ac18b
+md"""
+### System models
 """
 
 # ╔═╡ 5fb0b8ea-0d30-4496-9f66-dc70dfed94ed
@@ -117,6 +121,68 @@ struct MaterialStream
 	P::Float64
 	Y::Vector{Float64}
 	pipeline::StreamPipeline
+end
+
+# ╔═╡ 02e91a7a-9374-45f5-a1d2-41ff2b604aa2
+"Creates unit operations for `AirCooledCrusherModel`."
+struct AirCooledCrusherUnits
+	milling_power::EnergyStream
+	cooling_stream::MaterialStream
+	clinker_stream::MaterialStream
+	crusher_air_stream::MaterialStream
+	separator_air_stream::MaterialStream
+	parasite_air_stream::MaterialStream
+	recirc_stream::MaterialStream
+	
+	function AirCooledCrusherUnits(;
+			T_env,
+			P_env,
+			power_crusher,
+			pipe_cool,
+			pipe_prod,
+			ṁ_cooler,
+			ṁ_clinker,
+			ṁ_cru_air,
+			ṁ_sep_air,
+			ṁ_par_air,
+			Y_cool,
+			Y_clinker,
+			Y_air,
+		)
+		# Aliases
+		T, P = T_env, P_env
+		
+		# Applied power at mill.
+		milling_power = EnergyStream(ustrip(power_crusher))
+	
+		# Cooling material stream.
+		cooling_stream = MaterialStream(ṁ_cooler, T, P, Y_cool, pipe_cool)
+		
+		# Clinker material stream.
+		clinker_stream = MaterialStream(ṁ_clinker, T, P, Y_clinker, pipe_prod)
+	
+		# Milling air stream.
+		cru_air_stream = MaterialStream(ṁ_cru_air, T, P, Y_air, pipe_prod)
+	
+		# Separator air stream.
+		sep_air_stream = MaterialStream(ṁ_sep_air, T, P, Y_air, pipe_prod)
+		
+		# Air leaks in mill.
+		par_air_stream = MaterialStream(ṁ_par_air, T, P, Y_air, pipe_prod)
+
+		# Dummy recirculation for initialization.
+		recirc_stream = MaterialStream(0.0, T, P, Y_clinker, pipe_prod)
+		
+		return new(
+			milling_power,
+			cooling_stream,
+			clinker_stream,
+			cru_air_stream,
+			sep_air_stream,
+			par_air_stream,
+			recirc_stream
+		)
+	end
 end
 
 # ╔═╡ 71c95469-a9d8-4bc0-919f-c56228e72264
@@ -268,9 +334,6 @@ function get_results_diagram(; kwargs...)
 	end width height saveas
 end
 
-# ╔═╡ 4fb76d50-72bd-483a-9835-48058df5cc55
-get_results_diagram(;)
-
 # ╔═╡ 973aa28a-71bb-4149-8265-6a6ccbdf414c
 md"""
 ### Parameters
@@ -367,145 +430,6 @@ begin
 	enthapyflowrate
 end
 
-# ╔═╡ f1623dc0-3901-41aa-b398-15ca529c813e
-begin
-	@info "Overloaded Base methods."
-	
-	function Base.:+(s₁::MaterialStream, s₂::MaterialStream;
-	                 verbose = false, message = "")
-		# Can only mix streams using same material pipeline.
-		@assert s₁.pipeline == s₂.pipeline
-
-		# Retrieve flow rates.
-		ṁ₁ = s₁.ṁ
-		ṁ₂ = s₂.ṁ
-
-		# Total mass flow is the sum of stream flows.
-		ṁ = ṁ₁ + ṁ₂
-
-		# Mass weighted average pressure.
-		P = (ṁ₁ * s₁.P + ṁ₂ * s₂.P) / ṁ
-
-		# Compute species total mass flow and divide by total flow
-		# rate to get resulting stream mass fractions.
-		Y = (ṁ₁ * s₁.Y + ṁ₂ * s₂.Y) / ṁ
-
-		# Energy flow is the sum of individual stream flows.
-		ĥ = enthalpyflowrate(s₁) + enthalpyflowrate(s₂)
-	
-		function f(t)
-			# Create a stream with other conditions fixed.
-			sn = MaterialStream(ṁ, t, P, Y, s₁.pipeline)
-
-			# Check if with temperature `t` it matches `ĥ`.
-			return enthalpyflowrate(sn) - ĥ
-		end
-
-		# Find new temperature starting from the top.
-		T = find_zero(f, max(s₁.T, s₂.T))
-
-		# Create resulting stream.
-		sₒ = MaterialStream(ṁ, T, P, Y, s₁.pipeline)
-		
-		verbose && begin
-			rounder(v) = round(v; digits = 1)
-			T1 = rounder(ustrip(uconvert(u"°C", s₁.T * u"K")))
-			T2 = rounder(ustrip(uconvert(u"°C", s₂.T * u"K")))
-			To = rounder(ustrip(uconvert(u"°C", sₒ.T * u"K")))
-
-			# TODO make more informative!
-			@info """
-			MaterialStream addition (+) $(message)
-
-			First stream temperature..........: $(T1) °C
-			Second stream temperature.........: $(T2) °C
-			Resulting stream temperature......: $(To) °C
-			"""
-		end
-		
-		return sₒ
-	end
-
-	function Base.:+(s::MaterialStream, e::EnergyStream)
-		# Energy flow is the sum of individual stream flows.
-		ĥ = enthalpyflowrate(s) + enthapyflowrate(e)
-	
-		function f(t)
-			# Create a stream with other conditions fixed.
-			sn = MaterialStream(s.ṁ, t, s.P, s.Y, s.pipeline)
-
-			# Check if with temperature `t` it matches `ĥ`.
-			return enthalpyflowrate(sn) - ĥ
-		end
-
-		# # Find new temperature starting from current temperature.
-		T = find_zero(f, TREF)
-
-		# Create resulting stream.
-		return MaterialStream(s.ṁ, T, s.P, s.Y, s.pipeline)
-	end
-
-	function Base.:-(e₁::EnergyStream, e₂::EnergyStream)
-		return EnergyStream(e₁.ḣ - e₂.ḣ)
-	end
-	
-	function Base.:+(e₁::EnergyStream, e₂::EnergyStream)
-		return EnergyStream(e₁.ḣ + e₂.ḣ)
-	end
-end
-
-# ╔═╡ c4e10dbe-9f02-4156-aeba-8b3a4cdd4761
-""" Represents a solids separator with efficiency ϕ.
-
-Attributes
-----------
-
-- `ϕ::Float64`, solids separation efficiency.
-- `source::MaterialStream`, stream to be separated.
-- `solids::MaterialStream`, solids stream.
-- `others::MaterialStream`, remaining stream.
-"""
-struct SolidsSeparator
-	ϕ::Float64
-	source::MaterialStream
-	solids::MaterialStream
-	others::MaterialStream
-	
-	function SolidsSeparator(source; ϕ = 1.0)
-		# Retrieve elements kept constant.
-		T, P, pipe = source.T, source.P, source.pipeline
-		
-		# Retrieve array of solids mass fractions, zeroeing other materials.
-		Ys0 = map((m, Y)->issolid(m) ? Y : 0, pipe.materials, source.Y)
-	
-		# The mass flow of split solids stream corresponds to the mass flow
-		# of solids multiplied by the separation efficiency of separator.
-		m_sol = source.ṁ * sum(Ys0) * ϕ
-	
-		# The mass flow of secondary stream (recirculating solids and other
-		# phases) is the total nass flow minus separated solids.
-		m_oth = source.ṁ - m_sol
-	
-		# Mass flow rates of each species in original flow.
-		mk0 = source.ṁ * source.Y
-	
-		# For solids we multiply their total flow rate by the renormalized
-		# mass fractions of individual species, balance for other stream.
-		mk1 = m_sol * Ys0 ./ sum(Ys0)
-		mk2 = mk0 .- mk1
-	
-		# Mass fractions are recomputed for each stream.
-		Ys1 = mk1 / m_sol
-		Ys2 = mk2 / m_oth
-
-		# Create new streamsp
-		solids = MaterialStream(m_sol, T, P, Ys1, pipe)
-		others = MaterialStream(m_oth, T, P, Ys2, pipe)
-		
-		return new(ϕ, source, solids, others)
-	end
-end
-
 # ╔═╡ 5c204dd1-3c56-4942-8cd6-f1b894f114e8
 "Heat exchanged with stream to match outlet temperature."
 function exchanged_heat(s::MaterialStream, T_out)
@@ -596,6 +520,149 @@ struct TransportPipeline
 		##########
 		
 		return new(product, power)
+	end
+end
+
+# ╔═╡ f1623dc0-3901-41aa-b398-15ca529c813e
+begin
+	@info "Overloaded Base methods."
+	
+	function Base.:+(s₁::MaterialStream, s₂::MaterialStream;
+	                 verbose = false, message = "")
+		# Can only mix streams using same material pipeline.
+		@assert s₁.pipeline == s₂.pipeline
+
+		# Retrieve flow rates.
+		ṁ₁ = s₁.ṁ
+		ṁ₂ = s₂.ṁ
+
+		# Total mass flow is the sum of stream flows.
+		ṁ = ṁ₁ + ṁ₂
+
+		# Mass weighted average pressure.
+		P = (ṁ₁ * s₁.P + ṁ₂ * s₂.P) / ṁ
+
+		# Compute species total mass flow and divide by total flow
+		# rate to get resulting stream mass fractions.
+		Y = (ṁ₁ * s₁.Y + ṁ₂ * s₂.Y) / ṁ
+
+		# Energy flow is the sum of individual stream flows.
+		ĥ = enthalpyflowrate(s₁) + enthalpyflowrate(s₂)
+	
+		function f(t)
+			# Create a stream with other conditions fixed.
+			sn = MaterialStream(ṁ, t, P, Y, s₁.pipeline)
+
+			# Check if with temperature `t` it matches `ĥ`.
+			return enthalpyflowrate(sn) - ĥ
+		end
+
+		# Find new temperature starting from the top.
+		T = find_zero(f, max(s₁.T, s₂.T))
+
+		# Create resulting stream.
+		sₒ = MaterialStream(ṁ, T, P, Y, s₁.pipeline)
+		
+		verbose && begin
+			rounder(v) = round(v; digits = 1)
+			T1 = rounder(ustrip(uconvert(u"°C", s₁.T * u"K")))
+			T2 = rounder(ustrip(uconvert(u"°C", s₂.T * u"K")))
+			To = rounder(ustrip(uconvert(u"°C", sₒ.T * u"K")))
+
+			# TODO make more informative!
+			@info """
+			MaterialStream addition (+) $(message)
+
+			First stream temperature..........: $(T1) °C
+			Second stream temperature.........: $(T2) °C
+			Resulting stream temperature......: $(To) °C
+			"""
+		end
+		
+		return sₒ
+	end
+
+	function Base.:+(s::MaterialStream, e::EnergyStream)
+		# Energy flow is the sum of individual stream flows.
+		ĥ = enthalpyflowrate(s) + enthapyflowrate(e)
+	
+		function f(t)
+			# Create a stream with other conditions fixed.
+			sn = MaterialStream(s.ṁ, t, s.P, s.Y, s.pipeline)
+
+			# Check if with temperature `t` it matches `ĥ`.
+			return enthalpyflowrate(sn) - ĥ
+		end
+
+		# # Find new temperature starting from current temperature.
+		T = find_zero(f, TREF)
+
+		# Create resulting stream.
+		return MaterialStream(s.ṁ, T, s.P, s.Y, s.pipeline)
+	end
+
+	function Base.:-(e₁::EnergyStream, e₂::EnergyStream)
+		return EnergyStream(e₁.ḣ - e₂.ḣ)
+	end
+	
+	function Base.:+(e₁::EnergyStream, e₂::EnergyStream)
+		return EnergyStream(e₁.ḣ + e₂.ḣ)
+	end
+
+	function Base.:+(p::TransportPipeline, s::MaterialStream)
+		return p.product + s
+	end
+end
+
+# ╔═╡ c4e10dbe-9f02-4156-aeba-8b3a4cdd4761
+""" Represents a solids separator with efficiency ϕ.
+
+Attributes
+----------
+
+- `η::Float64`, solids separation efficiency.
+- `source::MaterialStream`, stream to be separated.
+- `solids::MaterialStream`, solids stream.
+- `others::MaterialStream`, remaining stream.
+"""
+struct SolidsSeparator
+	η::Float64
+	source::MaterialStream
+	solids::MaterialStream
+	others::MaterialStream
+	
+	function SolidsSeparator(source; η = 1.0)
+		# Retrieve elements kept constant.
+		T, P, pipe = source.T, source.P, source.pipeline
+		
+		# Retrieve array of solids mass fractions, zeroeing other materials.
+		Ys0 = map((m, Y)->issolid(m) ? Y : 0, pipe.materials, source.Y)
+	
+		# The mass flow of split solids stream corresponds to the mass flow
+		# of solids multiplied by the separation efficiency of separator.
+		m_sol = source.ṁ * sum(Ys0) * η
+	
+		# The mass flow of secondary stream (recirculating solids and other
+		# phases) is the total nass flow minus separated solids.
+		m_oth = source.ṁ - m_sol
+	
+		# Mass flow rates of each species in original flow.
+		mk0 = source.ṁ * source.Y
+	
+		# For solids we multiply their total flow rate by the renormalized
+		# mass fractions of individual species, balance for other stream.
+		mk1 = m_sol * Ys0 ./ sum(Ys0)
+		mk2 = mk0 .- mk1
+	
+		# Mass fractions are recomputed for each stream.
+		Ys1 = mk1 / m_sol
+		Ys2 = mk2 / m_oth
+
+		# Create new streamsp
+		solids = MaterialStream(m_sol, T, P, Ys1, pipe)
+		others = MaterialStream(m_oth, T, P, Ys2, pipe)
+		
+		return new(η, source, solids, others)
 	end
 end
 
@@ -690,8 +757,370 @@ struct CooledCrushingMill
 	end
 end
 
+# ╔═╡ 6ecea6d3-18ea-484e-8a4f-b78a88589917
+"Implements an air cooled crusher circuit."
+struct AirCooledCrusherModel
+	ηseparator::Float64
+	T_env::Unitful.Quantity{Float64}
+	P_env::Unitful.Quantity{Float64}
+	
+	ṁ_cooler::Unitful.Quantity{Float64}
+	ṁ_clinker::Unitful.Quantity{Float64}
+	ṁ_cru_air::Unitful.Quantity{Float64}
+	ṁ_sep_air::Unitful.Quantity{Float64}
+	ṁ_par_air::Unitful.Quantity{Float64}
+	
+	power_crusher::Unitful.Quantity{Float64}
+	T_out_cool::Unitful.Quantity{Float64}
+	T_in_sep::Unitful.Quantity{Float64}
+
+	pipe_cool::StreamPipeline
+	pipe_prod::StreamPipeline
+
+	unitops::AirCooledCrusherUnits
+	crusher::CooledCrushingMill
+	separator::SolidsSeparator
+	
+	function AirCooledCrusherModel(;
+			T_env,
+			P_env,
+			ṁ_cooler,
+			ṁ_clinker,
+			ṁ_cru_air,
+			ṁ_sep_air,
+			ṁ_par_air,
+			power_crusher,
+			ηseparator,
+			T_out_cool,
+			T_in_sep,
+			max_iter = 100,
+			T_tol = 1.0e-03,
+			ṁ_tol = 1.0e-06
+		)
+		##########
+		# UNITS
+		##########
+		
+		T_env = uconvert(u"K", T_env)
+		P_env = uconvert(u"Pa", P_env)
+
+		ṁ_cooler  = uconvert(u"kg/s", ṁ_cooler)
+		ṁ_clinker = uconvert(u"kg/s", ṁ_clinker)
+		ṁ_cru_air = uconvert(u"kg/s", ṁ_cru_air)
+		ṁ_sep_air = uconvert(u"kg/s", ṁ_sep_air)
+		ṁ_par_air = uconvert(u"kg/s", ṁ_par_air)
+
+		power_crusher = uconvert(u"W", power_crusher)
+		ηseparator = 0.01ηseparator
+
+		T_out_cool = uconvert(u"K", T_out_cool)
+		T_in_sep   = uconvert(u"K", T_in_sep)
+
+		##########
+		# WORKFLOW
+		##########
+
+		pipe_cool = StreamPipeline([Air()])
+		pipe_prod = StreamPipeline([Clinker(), Air()])
+
+		Y_cool    = [1.0]
+		Y_clinker = [1.0, 0.0]
+		Y_air     = [0.0, 1.0]
+
+		unitops = AirCooledCrusherUnits(;
+			pipe_cool     = pipe_cool,
+			pipe_prod     = pipe_prod,
+
+			T_env         = ustrip(T_env),
+			P_env         = ustrip(P_env),
+			power_crusher = ustrip(power_crusher),
+			ṁ_cooler      = ustrip(ṁ_cooler),
+			ṁ_clinker     = ustrip(ṁ_clinker),
+			ṁ_cru_air     = ustrip(ṁ_cru_air),
+			ṁ_sep_air     = ustrip(ṁ_sep_air),
+			ṁ_par_air     = ustrip(ṁ_par_air),
+
+			Y_cool,
+			Y_clinker,
+			Y_air,
+		)
+
+		meal = unitops.clinker_stream
+		meal += unitops.crusher_air_stream
+		meal += unitops.parasite_air_stream
+
+		crusher = nothing
+		separator = nothing
+		recirculation = unitops.recirc_stream
+		itercount = 0
+	
+		ṁnow = 1.0e+09
+		Tnow = 1.0e+09
+
+		while itercount <= max_iter
+			# Add crushing energy and cool down system.
+			crusher = CooledCrushingMill(; 
+				product  = meal + recirculation,
+				coolant  = unitops.cooling_stream,
+				power    = unitops.milling_power,
+				model    = :TARGET_COOLANT_TEMP,
+				verbose  = false,
+				temp_out = ustrip(T_out_cool)
+			)
+
+			# Loose some heat in vertical pipeline.
+			toseparator1 = TransportPipeline(;
+				product  = crusher.product,
+				model    = :TARGET_EXIT_TEMP,
+				verbose  = false,
+				temp_out = ustrip(T_in_sep)
+			)
+
+			# Add air stream to crused product.
+			toseparator2 = toseparator1 + unitops.separator_air_stream
+
+			# Recover streams from separator
+			separator = SolidsSeparator(toseparator2; η = ηseparator)
+
+			# Compute property changes.
+			ΔT = abs(Tnow - separator.solids.T)
+			Δṁ = abs(ṁnow - separator.solids.ṁ)
+
+			# Check convergence.
+			if ΔT < T_tol && Δṁ < ṁ_tol
+				@info "Converged after $(itercount) iterations"
+				break
+			end
+
+			# Prepare next iteration.
+			recirculation = separator.solids
+			Tnow = recirculation.T
+			ṁnow = recirculation.ṁ
+			itercount += 1
+		end
+		
+		##########
+		# NEW
+		##########
+		
+		return new(
+			ηseparator,
+			T_env,
+			P_env,
+			ṁ_cooler,
+			ṁ_clinker,
+			ṁ_cru_air,
+			ṁ_sep_air,
+			ṁ_par_air,
+			power_crusher,
+			T_out_cool,
+			T_in_sep,
+			pipe_cool,
+			pipe_prod,
+			unitops,
+			crusher,
+			separator
+		)
+	end
+end
+
+# ╔═╡ 4fb76d50-72bd-483a-9835-48058df5cc55
+let
+	# Solids separation efficiency.
+	ηseparator = 62.75
+	
+	# Operating conditions during tests.
+	T_env = 5.0u"°C"
+	P_env = 1.0u"atm"
+
+	# Controlled flows.
+	ṁ_cooler  = 900u"kg/hr"
+	ṁ_clinker = 500u"kg/hr"
+	ṁ_cru_air = 2400u"kg/hr"
+	ṁ_sep_air = 250u"kg/hr"
+	ṁ_par_air = 0u"kg/hr"  # (streams 7 and 9)
+
+	# Power applied to crusher.
+	power_crusher = 100u"kW"
+
+	# Coolant outlet temperature (measured).
+	T_out_cool = 75u"°C"
+
+	# Pipeline inlet temperature before separator (measured).
+	T_in_sep = 73u"°C"
+	
+	model_new = AirCooledCrusherModel(;
+		T_env,
+		P_env,
+		ṁ_cooler,
+		ṁ_clinker,
+		ṁ_cru_air,
+		ṁ_sep_air,
+		ṁ_par_air,
+		power_crusher,
+		ηseparator,
+		T_out_cool,
+		T_in_sep,
+	)
+	
+	# get_results_diagram(;)
+end
+
+# ╔═╡ e27b81f1-0f3d-4825-b033-81c49778c962
+md"""
+## Verifications
+"""
+
+# ╔═╡ f1ef5fc2-1b21-4f10-9966-faa31e413735
+md"""
+### Water cooling power
+"""
+
+# ╔═╡ 57155236-83b5-41cb-b404-533ce23a86c3
+let
+	water = Water()
+	
+	V̇ = 2.0u"m^3/hr"
+	
+	T = [20u"°C"; 40u"°C"]
+	
+	ρ = density(water, T[1], PREF * u"Pa")
+	
+	H = map(x->SpecificH(PREF * u"Pa", x), T)
+	
+	Q̇ = uconvert(u"kW", ρ * V̇ * diff(H)[1]) 
+
+	@info "Reference cooling power of $(Q̇)"
+end
+
+# ╔═╡ 855e9382-1edc-4865-9c13-19b52631fdd2
+md"""
+### Air properties
+
+!!! warning "IMPORTANT"
+
+	 The polynomial fit in the following cell was manually copied and stored as a constant. If any updates are provided to the air enthalpy computation method, this needs to be restored. This choice was made to make it easier to export developed code to an external module.
+
+"""
+
+# ╔═╡ 694b2733-2715-45b9-a153-4addc1f88e52
+let
+	# XXX: the behaviour in `LinRange` is different from what happens after
+	# one calls `ustrip` for a single value. Here outputs are already in K.
+	T = LinRange(0.0u"°C", 200.0u"°C", 1000+1)
+	H = get_air_enthalpy_function().(T)
+
+	cut = 100
+	hf = fit(ustrip(T), ustrip(H), 2; var = :T)
+	Hf = hf.(ustrip(T)[begin:cut:end])
+
+	f = Figure(size = (700, 400))
+	ax = Axis(f[1, 1]; title = string(hf))
+	lines!(ax, ustrip(T), ustrip(H) ./ 1000; color = :black)
+	scatter!(ax, ustrip(T)[begin:cut:end], Hf ./ 1000; color = :red)
+	ax.xlabel = "Temperature [K]"
+	ax.ylabel = "Enthalpy [kJ/kg]"
+	f
+end
+
+# ╔═╡ c3abf986-a852-480d-a624-18d7631edcc7
+md"""
+## Implementation tests
+"""
+
+# ╔═╡ 80a047ba-3469-4598-b000-d97ea9c75753
+"Verify specific heat approximation from enthalpy."
+function test_specific_heat(; T = [20u"°C"; 40u"°C"], atol = 0.005)
+	H = map(x->SpecificH(101325.0u"Pa", x), T)
+	c = mean(x->SpecificCP(101325.0u"Pa", x), T)
+	return c - (H[2] - H[1]) / (T[2] - T[1]) < atol * unit(c)
+end
+
+# ╔═╡ d2129783-2048-420b-9634-e46d741ee1d2
+begin
+	
+	function test_enthalpy(m, T, P)
+		pipe = StreamPipeline([m])
+		stream = MaterialStream(1.0, T, P, [1.0], pipe)
+		
+		h1 = enthalpy(m, T, P)
+		h2 = enthalpy(pipe, T, P, [1.0])
+		h3 = enthalpy(stream)
+		
+		result = h1 ≈ h2 ≈ h3
+		!result && @warn "Failed testing $(typeof(m))"
+		
+		return result
+	end
+
+	function test_enthalpy(; materials = [Water(), Clinker(), Air()])
+		return all(test_enthalpy.(materials, 293.15, 101325.0))
+	end
+		
+	@doc "Test enthalpy evaluations."
+	test_enthalpy
+end
+
+# ╔═╡ 858981f9-ea7a-4413-ab89-00d8987eb7d3
+"Test mass balance in solids separator."
+function test_solids_separator()
+	pipe = StreamPipeline([Clinker(), Air()])
+	source = MaterialStream(1.0, TREF, PREF, [0.2, 0.8], pipe)
+	splits = SolidsSeparator(source; η = 0.5)
+	
+	m0 = mass_flow_spec(source)
+	m1 = mass_flow_spec(splits.solids)
+	m2 = mass_flow_spec(splits.others)
+	
+	return sum(m1 + m2 - m0) ≈ 0.0
+end
+
+
+# ╔═╡ ffc9b07f-9639-4c77-a999-03807e3a520a
+let
+	@info "Running tests..."
+	
+	@assert test_specific_heat()
+	@assert test_enthalpy()
+	@assert test_solids_separator()
+end
+
+# ╔═╡ d4146294-576c-449d-8278-81d206802c07
+md"""
+## Draft mode
+"""
+
+# ╔═╡ 5868861a-7b8c-4711-81c5-15fe4bc2d4b2
+let
+	@info "Implementation checks draft..."
+
+	T = 20u"°C"
+	P = 1.0u"atm"
+	
+	study_stream(ṁ) = ustrip.(get_stream_si_units(ṁ ,T, P))
+	
+	water   = Water()
+	clinker = Clinker()
+	air     = Air()
+
+	waterpipe  = StreamPipeline([water])
+	cementpipe = StreamPipeline([clinker, air])
+
+	ṁw, Tw, Pw = study_stream(900.0u"kg/hr")
+	ṁc, Tc, Pc = study_stream(500.0u"kg/hr")
+	ṁa, Ta, Pa = study_stream(250.0u"kg/hr")
+	
+	sw = MaterialStream(ṁw, Tw, Pw, [1.0], waterpipe)
+	sc = MaterialStream(ṁc, Tc, Pc, [1.0, 0.0], cementpipe)
+	sa = MaterialStream(ṁa, Ta, Pa, [0.0, 1.0], cementpipe)
+
+	sc + sa
+end;
+
 # ╔═╡ fb91bffc-78b2-46f9-a28d-bd42810440c3
-tosep = let
+let
+	@info "Drafting of a model..."
+	
 	# Operating conditions during tests.
 	T = ustrip(uconvert(u"K", 5.0u"°C"))
 	P = ustrip(uconvert(u"Pa", 1.0u"atm"))
@@ -802,162 +1231,16 @@ tosep = let
 		tosep = (+)(tosep1.product, s4; verbose = false,
 		            message = "separator input stream")
 	
-		sep = SolidsSeparator(tosep; ϕ = ϕsep)
+		sep = SolidsSeparator(tosep; η = ϕsep)
 		
 		recirc = sep.solids
-		if trial % 10 == 0
-			@info recirc.ṁ * 3600
-		end
+		# if trial % 10 == 0
+		# 	@info recirc.ṁ * 3600
+		# end
 	end
 	
-	@info recirc
+	# @info recirc
 end
-
-# ╔═╡ e27b81f1-0f3d-4825-b033-81c49778c962
-md"""
-## Verifications
-"""
-
-# ╔═╡ f1ef5fc2-1b21-4f10-9966-faa31e413735
-md"""
-### Water cooling power
-"""
-
-# ╔═╡ 57155236-83b5-41cb-b404-533ce23a86c3
-let
-	water = Water()
-	
-	V̇ = 2.0u"m^3/hr"
-	
-	T = [20u"°C"; 40u"°C"]
-	
-	ρ = density(water, T[1], PREF * u"Pa")
-	
-	H = map(x->SpecificH(PREF * u"Pa", x), T)
-	
-	Q̇ = uconvert(u"kW", ρ * V̇ * diff(H)[1]) 
-
-	@info "Reference cooling power of $(Q̇)"
-end
-
-# ╔═╡ 855e9382-1edc-4865-9c13-19b52631fdd2
-md"""
-### Air properties
-
-!!! warning "IMPORTANT"
-
-	 The polynomial fit in the following cell was manually copied and stored as a constant. If any updates are provided to the air enthalpy computation method, this needs to be restored. This choice was made to make it easier to export developed code to an external module.
-
-"""
-
-# ╔═╡ 694b2733-2715-45b9-a153-4addc1f88e52
-let
-	# XXX: the behaviour in `LinRange` is different from what happens after
-	# one calls `ustrip` for a single value. Here outputs are already in K.
-	T = LinRange(0.0u"°C", 200.0u"°C", 1000+1)
-	H = get_air_enthalpy_function().(T)
-
-	cut = 100
-	hf = fit(ustrip(T), ustrip(H), 2; var = :T)
-	Hf = hf.(ustrip(T)[begin:cut:end])
-
-	f = Figure(size = (700, 400))
-	ax = Axis(f[1, 1]; title = string(hf))
-	lines!(ax, ustrip(T), ustrip(H) ./ 1000; color = :black)
-	scatter!(ax, ustrip(T)[begin:cut:end], Hf ./ 1000; color = :red)
-	ax.xlabel = "Temperature [K]"
-	ax.ylabel = "Enthalpy [kJ/kg]"
-	f
-end
-
-# ╔═╡ c3abf986-a852-480d-a624-18d7631edcc7
-md"""
-## Tests
-"""
-
-# ╔═╡ 80a047ba-3469-4598-b000-d97ea9c75753
-"Verify specific heat approximation from enthalpy."
-function test_specific_heat(; T = [20u"°C"; 40u"°C"], atol = 0.005)
-	H = map(x->SpecificH(101325.0u"Pa", x), T)
-	c = mean(x->SpecificCP(101325.0u"Pa", x), T)
-	return c - (H[2] - H[1]) / (T[2] - T[1]) < atol * unit(c)
-end
-
-# ╔═╡ d2129783-2048-420b-9634-e46d741ee1d2
-begin
-	
-	function test_enthalpy(m, T, P)
-		pipe = StreamPipeline([m])
-		stream = MaterialStream(1.0, T, P, [1.0], pipe)
-		
-		h1 = enthalpy(m, T, P)
-		h2 = enthalpy(pipe, T, P, [1.0])
-		h3 = enthalpy(stream)
-		
-		result = h1 ≈ h2 ≈ h3
-		!result && @warn "Failed testing $(typeof(m))"
-		
-		return result
-	end
-
-	function test_enthalpy(; materials = [Water(), Clinker(), Air()])
-		return all(test_enthalpy.(materials, 293.15, 101325.0))
-	end
-		
-	@doc "Test enthalpy evaluations."
-	test_enthalpy
-end
-
-# ╔═╡ 858981f9-ea7a-4413-ab89-00d8987eb7d3
-"Test mass balance in solids separator."
-function test_solids_separator()
-	pipe = StreamPipeline([Clinker(), Air()])
-	source = MaterialStream(1.0, TREF, PREF, [0.2, 0.8], pipe)
-	splits = SolidsSeparator(source; ϕ = 0.5)
-	
-	m0 = mass_flow_spec(source)
-	m1 = mass_flow_spec(splits.solids)
-	m2 = mass_flow_spec(splits.others)
-	
-	return sum(m1 + m2 - m0) ≈ 0.0
-end
-
-
-# ╔═╡ ffc9b07f-9639-4c77-a999-03807e3a520a
-let
-	@info "Running tests..."
-	
-	@assert test_specific_heat()
-	@assert test_enthalpy()
-	@assert test_solids_separator()
-end
-
-# ╔═╡ 5868861a-7b8c-4711-81c5-15fe4bc2d4b2
-let
-	@info "Implementation testing (draft mode)"
-
-	T = 20u"°C"
-	P = 1.0u"atm"
-	
-	study_stream(ṁ) = ustrip.(get_stream_si_units(ṁ ,T, P))
-	
-	water   = Water()
-	clinker = Clinker()
-	air     = Air()
-
-	waterpipe  = StreamPipeline([water])
-	cementpipe = StreamPipeline([clinker, air])
-
-	ṁw, Tw, Pw = study_stream(900.0u"kg/hr")
-	ṁc, Tc, Pc = study_stream(500.0u"kg/hr")
-	ṁa, Ta, Pa = study_stream(250.0u"kg/hr")
-	
-	sw = MaterialStream(ṁw, Tw, Pw, [1.0], waterpipe)
-	sc = MaterialStream(ṁc, Tc, Pc, [1.0, 0.0], cementpipe)
-	sa = MaterialStream(ṁa, Ta, Pa, [0.0, 1.0], cementpipe)
-
-	sc + sa
-end;
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -3528,11 +3811,13 @@ version = "3.5.0+0"
 # ╟─7666c8a3-1200-4827-809c-18e383501b70
 # ╠═476cdc10-f435-4af5-af77-fe107edd3580
 # ╟─076e0734-a39c-4f60-ae95-fe62e8e61076
+# ╠═259238bf-7fd4-487c-999f-f864ebe472f6
 # ╠═4fb76d50-72bd-483a-9835-48058df5cc55
-# ╠═6ecea6d3-18ea-484e-8a4f-b78a88589917
-# ╠═fb91bffc-78b2-46f9-a28d-bd42810440c3
 # ╟─ed994cb4-553d-4ec5-b36d-fa30d46373c8
 # ╟─6491e060-cf27-11ee-14d2-bbfe55d17ee8
+# ╟─88427bae-eeed-418b-acbe-f76b679ac18b
+# ╟─6ecea6d3-18ea-484e-8a4f-b78a88589917
+# ╟─02e91a7a-9374-45f5-a1d2-41ff2b604aa2
 # ╟─5fb0b8ea-0d30-4496-9f66-dc70dfed94ed
 # ╟─233e95d3-9611-4fdf-b12f-3ce43434866d
 # ╟─e1c94f16-9d56-4965-86d1-abfc19195b87
@@ -3572,6 +3857,8 @@ version = "3.5.0+0"
 # ╟─d2129783-2048-420b-9634-e46d741ee1d2
 # ╟─858981f9-ea7a-4413-ab89-00d8987eb7d3
 # ╟─ffc9b07f-9639-4c77-a999-03807e3a520a
+# ╟─d4146294-576c-449d-8278-81d206802c07
 # ╟─5868861a-7b8c-4711-81c5-15fe4bc2d4b2
+# ╟─fb91bffc-78b2-46f9-a28d-bd42810440c3
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

@@ -694,6 +694,7 @@ Attributes
 
 """
 struct CooledCrushingMill
+	rawmeal::MaterialStream
 	product::MaterialStream
 	coolant::MaterialStream
 	power::EnergyStream
@@ -715,7 +716,8 @@ struct CooledCrushingMill
 		
 		Δq = 0.0
 		loss = EnergyStream(Δq)
-
+		meal = product
+		
 		##########
 		# MODEL
 		##########
@@ -755,7 +757,7 @@ struct CooledCrushingMill
 		# NEW
 		##########
 		
-		return new(product, coolant, power, loss)
+		return new(meal, product, coolant, power, loss)
 	end
 end
 
@@ -775,6 +777,7 @@ struct AirCooledCrusherModel
 	power_crusher::Unitful.Quantity{Float64}
 	T_out_cool::Unitful.Quantity{Float64}
 	T_in_sep::Unitful.Quantity{Float64}
+	T_out_rec::Unitful.Quantity{Float64}
 
 	pipe_cool::StreamPipeline
 	pipe_prod::StreamPipeline
@@ -795,9 +798,11 @@ struct AirCooledCrusherModel
 			ηseparator,
 			T_out_cool,
 			T_in_sep,
+			T_out_rec,
 			max_iter = 100,
-			T_tol = 1.0e-03,
-			ṁ_tol = 1.0e-06
+			T_tol = 1.0e-08,
+			ṁ_tol = 1.0e-09,
+			verbose = true
 		)
 		##########
 		# UNITS
@@ -817,6 +822,7 @@ struct AirCooledCrusherModel
 
 		T_out_cool = uconvert(u"K", T_out_cool)
 		T_in_sep   = uconvert(u"K", T_in_sep)
+		T_out_rec  = uconvert(u"K", T_out_rec)
 
 		##########
 		# WORKFLOW
@@ -884,18 +890,26 @@ struct AirCooledCrusherModel
 			# Recover streams from separator
 			separator = SolidsSeparator(toseparator2; η = ηseparator)
 
+			# Loose some heat in recirculation pipeline.
+			tocrusher = TransportPipeline(;
+				product  = separator.solids,
+				model    = :TARGET_EXIT_TEMP,
+				verbose  = false,
+				temp_out = ustrip(T_out_rec)
+			)
+			
 			# Compute property changes.
-			ΔT = abs(Tnow - separator.solids.T)
-			Δṁ = abs(ṁnow - separator.solids.ṁ)
+			ΔT = abs(Tnow - tocrusher.product.T)
+			Δṁ = abs(ṁnow - tocrusher.product.ṁ)
 
 			# Check convergence.
 			if ΔT < T_tol && Δṁ < ṁ_tol
-				@info "Converged after $(itercount) iterations"
+				verbose && @info "AirCooledCrusherModel: $(itercount) iterations"
 				break
 			end
 
 			# Prepare next iteration.
-			recirculation = separator.solids
+			recirculation = tocrusher.product
 			Tnow = recirculation.T
 			ṁnow = recirculation.ṁ
 			itercount += 1
@@ -917,6 +931,7 @@ struct AirCooledCrusherModel
 			power_crusher,
 			T_out_cool,
 			T_in_sep,
+			T_out_rec,
 			pipe_cool,
 			pipe_prod,
 			unitops,
@@ -924,6 +939,25 @@ struct AirCooledCrusherModel
 			separator
 		)
 	end
+end
+
+# ╔═╡ 599ab13f-0f72-41da-bd49-f8b0e92f981c
+"Standardized report for `AirCooledCrusherModel`."
+function report(model::AirCooledCrusherModel)
+	@info """
+	AirCooledCrusherModel
+
+	Coolant inlet temperature......... $(model.unitops.cooling_stream.T - TREF) °C
+	Coolant outlet temperature........ $(model.crusher.coolant.T - TREF) °C
+	Coolant energy intake............. $(model.crusher.loss.ḣ / 1000) kW
+	
+	Crusher inlet temperature......... $(model.crusher.rawmeal.T - TREF) °C
+	Crusher outlet temperature........ $(model.crusher.product.T - TREF) °C
+	
+	Recirculation flow................ $(3600model.separator.solids.ṁ) kg/h
+	Recirculation initial temperature. $(model.separator.solids.T - TREF) °C
+	Recirculation final temperature... $(ustrip(model.T_out_rec) - TREF) °C
+	"""
 end
 
 # ╔═╡ 4fb76d50-72bd-483a-9835-48058df5cc55
@@ -949,9 +983,12 @@ let
 
 	# Coolant outlet temperature (measured).
 	T_out_cool = 75u"°C"
-
+	
 	# Pipeline inlet temperature before separator (measured).
 	T_in_sep = 73u"°C"
+
+	# Recirculation temperature before crusher (measured).
+	T_out_rec = 39u"°C"
 	
 	model = AirCooledCrusherModel(;
 		T_env,
@@ -965,18 +1002,13 @@ let
 		ηseparator,
 		T_out_cool,
 		T_in_sep,
+		T_out_rec,
+		verbose = false
 	)
 
-	@info """
-
-	Coolant outlet temperature .... $(model.crusher.coolant.T - TREF) °C
-	Crusher outlet temperature .... $(model.crusher.product.T - TREF) °C
-	Separator outlet temperature .. $(model.separator.solids.T - TREF) °C
-	Recirculation flow ............ $(3600model.separator.solids.ṁ) kg/h
-	"""
-
-	model
-	# get_results_diagram(model)
+	report(model)
+	
+	get_results_diagram(model)
 end
 
 # ╔═╡ e27b81f1-0f3d-4825-b033-81c49778c962
@@ -3825,7 +3857,7 @@ version = "3.5.0+0"
 # ╠═476cdc10-f435-4af5-af77-fe107edd3580
 # ╟─076e0734-a39c-4f60-ae95-fe62e8e61076
 # ╠═259238bf-7fd4-487c-999f-f864ebe472f6
-# ╠═4fb76d50-72bd-483a-9835-48058df5cc55
+# ╟─4fb76d50-72bd-483a-9835-48058df5cc55
 # ╟─ed994cb4-553d-4ec5-b36d-fa30d46373c8
 # ╟─6491e060-cf27-11ee-14d2-bbfe55d17ee8
 # ╟─88427bae-eeed-418b-acbe-f76b679ac18b
@@ -3848,6 +3880,7 @@ version = "3.5.0+0"
 # ╟─b03e91ec-40b9-441c-bca5-e7d3e7e6f88a
 # ╟─212b9dad-ba96-4c1f-9e2f-d490d56d4f97
 # ╟─f344ac3d-d199-4f22-a7a3-6ca9de6448e3
+# ╟─599ab13f-0f72-41da-bd49-f8b0e92f981c
 # ╟─f1623dc0-3901-41aa-b398-15ca529c813e
 # ╟─dbfbd233-d64d-4d8e-96e6-b88e24eb2726
 # ╟─dae005f2-8b15-47ae-8170-e56e43b74996

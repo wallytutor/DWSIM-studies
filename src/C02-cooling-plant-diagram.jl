@@ -7,6 +7,72 @@ using InteractiveUtils
 # ╔═╡ 00f54590-da5a-11ee-3106-1d02611816a3
 using Luxor
 
+# ╔═╡ 86f9737d-124e-4010-bac9-ee6c63057970
+@svg let
+	halign = :center
+	valign = :middle
+	
+	colorbkg = "#EEEEEE"
+	colorair = "#0055FF"
+	colorsol = "#FF2200"
+	colormix = "#FF552F"
+	
+	background(colorbkg)
+	
+	let # Leak air (7+9).
+		sethue(colorair)
+		move(Point(-280, -50))
+		line(Point(-250, -50))
+		line(Point(-200, 0))
+		strokepath()
+	end
+	
+	let # Clinker inlet.
+		sethue(colorsol)
+		move(Point(-280, 50))
+		line(Point(-250, 50))
+		line(Point(-200, 0))
+		strokepath()
+	end
+	
+	
+	let # Horizontal pipe.
+		sethue(colormix)
+		move(Point(-200, 0))
+		line(Point(-50, 0))
+		strokepath()
+	end
+	
+	let # Crushing air inlet.
+		sethue(colorair)
+		move(Point(-150, -50))
+		line(Point(-150, 0))
+		strokepath()
+	end
+
+	let # Joining points
+		radius = 3
+		sethue("black")
+		circle(Point(-200, 0), radius; action = :fill)
+		circle(Point(-150, 0), radius; action = :fill)
+	end
+
+	let # Crusher
+		move(-50, 30)
+		line(Point(100, 30))
+		line(Point(100, -30))
+		line(Point(-50, -30))
+		closepath()
+
+		sethue("orange")
+		fillpreserve()
+		
+		sethue("black")
+		strokepath()
+	end
+		
+end 700 400 "crusher.svg"
+
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
@@ -638,5 +704,6 @@ version = "3.5.0+0"
 
 # ╔═╡ Cell order:
 # ╠═00f54590-da5a-11ee-3106-1d02611816a3
+# ╠═86f9737d-124e-4010-bac9-ee6c63057970
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

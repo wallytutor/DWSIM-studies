@@ -4,6 +4,16 @@
 using Markdown
 using InteractiveUtils
 
+# This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
+macro bind(def, element)
+    quote
+        local iv = try Base.loaded_modules[Base.PkgId(Base.UUID("6e696c72-6542-2067-7265-42206c756150"), "AbstractPlutoDingetjes")].Bonds.initial_value catch; b -> missing; end
+        local el = $(esc(element))
+        global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : iv(el)
+        el
+    end
+end
+
 # ╔═╡ 6491e060-cf27-11ee-14d2-bbfe55d17ee8
 begin
 	@info "Loading packages..."
@@ -59,11 +69,6 @@ end
 # ╔═╡ 076e0734-a39c-4f60-ae95-fe62e8e61076
 md"""
 ## Current air cooling
-"""
-
-# ╔═╡ 259238bf-7fd4-487c-999f-f864ebe472f6
-md"""
-
 """
 
 # ╔═╡ ed994cb4-553d-4ec5-b36d-fa30d46373c8
@@ -335,6 +340,25 @@ function get_results_diagram(model; kwargs...)
 		
 	end width height saveas
 end
+
+# ╔═╡ 6bf34eae-5ba7-431d-a2a4-c184ce5e46ec
+"Default slider with displayed value."
+slider(rng, def) = PlutoUI.Slider(rng, default=def, show_value=true)
+
+# ╔═╡ 259238bf-7fd4-487c-999f-f864ebe472f6
+md"""
+| Quantity | Type | Value | Unit |
+|---------:|:----:|:------|:----:|
+Separator efficiency | Tuning | $(@bind ηseparator1 slider(45.0:0.05:65.0, 47.65)) | [%] 
+Environment temp. | Measured | $(@bind T_env1 slider(-2.0:0.5:25.0, 5.0)) | [°C] 
+Cooling air final temp. | Measured | $(@bind T_out_cool1 slider(50.0:0.5:85.0, 75.0)) | [°C] 
+Temp. before separator | Measured | $(@bind T_in_sep1 slider(50.0:0.5:85.0, 73.0)) | [°C] 
+Temp. after recirculation | Measured | $(@bind T_out_rec1 slider(30.0:0.5:50.0, 39.0)) | [°C] 
+Milling power | Controls | $(@bind power_crusher1 slider(90.0:1.0:120.0, 107.0)) | [kW] 
+Clinker feed rate | Controls | $(@bind ṁ_clinker1 slider(450.0:10.0:900.0, 820.0)) | [kg/h] 
+
+[^1]: Reference data from Feb 15th 2024 13h50.
+"""
 
 # ╔═╡ 973aa28a-71bb-4149-8265-6a6ccbdf414c
 md"""
@@ -617,7 +641,11 @@ begin
 end
 
 # ╔═╡ c4e10dbe-9f02-4156-aeba-8b3a4cdd4761
-""" Represents a solids separator with efficiency ϕ.
+""" Represents a solids separator with efficiency η.
+
+To-do's
+-------
+- Add inverse model to automatically tune efficiency η.
 
 Attributes
 ----------
@@ -944,19 +972,24 @@ end
 # ╔═╡ 599ab13f-0f72-41da-bd49-f8b0e92f981c
 "Standardized report for `AirCooledCrusherModel`."
 function report(model::AirCooledCrusherModel)
+	fmt(x) = round(x; digits = 1)
+	
 	@info """
 	AirCooledCrusherModel
 
-	Coolant inlet temperature......... $(model.unitops.cooling_stream.T - TREF) °C
-	Coolant outlet temperature........ $(model.crusher.coolant.T - TREF) °C
-	Coolant energy intake............. $(model.crusher.loss.ḣ / 1000) kW
-	
-	Crusher inlet temperature......... $(model.crusher.rawmeal.T - TREF) °C
-	Crusher outlet temperature........ $(model.crusher.product.T - TREF) °C
-	
-	Recirculation flow................ $(3600model.separator.solids.ṁ) kg/h
-	Recirculation initial temperature. $(model.separator.solids.T - TREF) °C
-	Recirculation final temperature... $(ustrip(model.T_out_rec) - TREF) °C
+	Cooling circuit:
+	- inlet temperature...... $(fmt(model.unitops.cooling_stream.T - TREF)) °C
+	- outlet temperature..... $(fmt(model.crusher.coolant.T - TREF)) °C
+	- energy intake.......... $(fmt(model.crusher.loss.ḣ / 1000)) kW
+
+	Crusher circuit:
+	- inlet temperature...... $(fmt(model.crusher.rawmeal.T - TREF)) °C
+	- outlet temperature..... $(fmt(model.crusher.product.T - TREF)) °C
+
+	Recirculation circuit:
+	- flow rate.............. $(fmt(3600model.separator.solids.ṁ)) kg/h
+	- initial temperature.... $(fmt(model.separator.solids.T - TREF)) °C
+	- final temperature...... $(fmt(ustrip(model.T_out_rec) - TREF)) °C
 	"""
 end
 
@@ -964,46 +997,30 @@ end
 let
 	# TODO add inputs with Nm3/h instead!
 	
-	# Solids separation efficiency.
-	ηseparator = 62.75
-	
-	# Operating conditions during tests.
-	T_env = 5.0u"°C"
-	P_env = 1.0u"atm"
-
 	# Controlled flows.
 	ṁ_cooler  = 900u"kg/hr"
-	ṁ_clinker = 500u"kg/hr"
-	ṁ_cru_air = 2400u"kg/hr"
-	ṁ_sep_air = 250u"kg/hr"
-	ṁ_par_air = 0u"kg/hr"  # (streams 7 and 9)
+	ṁ_cru_air = 1.2 * 1881u"kg/hr"
+	ṁ_sep_air = 1.2 * 431u"kg/hr"
 
-	# Power applied to crusher.
-	power_crusher = 100u"kW"
-
-	# Coolant outlet temperature (measured).
-	T_out_cool = 75u"°C"
-	
-	# Pipeline inlet temperature before separator (measured).
-	T_in_sep = 73u"°C"
-
-	# Recirculation temperature before crusher (measured).
-	T_out_rec = 39u"°C"
+	# TODO use the velocities instead, this is for test only!
+	# ṁ_par_air = 0u"kg/hr"  # (streams 7 and 9)
+	AIR_TOTAL = 1.2 * 3600u"kg/hr"
+	ṁ_par_air = (AIR_TOTAL - ṁ_cru_air - ṁ_sep_air) * 0.6
 	
 	model = AirCooledCrusherModel(;
-		T_env,
-		P_env,
-		ṁ_cooler,
-		ṁ_clinker,
-		ṁ_cru_air,
-		ṁ_sep_air,
-		ṁ_par_air,
-		power_crusher,
-		ηseparator,
-		T_out_cool,
-		T_in_sep,
-		T_out_rec,
-		verbose = false
+		ηseparator    = ηseparator1,
+		T_env         = T_env1 * u"°C",
+		P_env         = 1.0u"atm",
+		ṁ_cooler      = ṁ_cooler,
+		ṁ_clinker     = ṁ_clinker1 * u"kg/hr",
+		ṁ_cru_air     = ṁ_cru_air,
+		ṁ_sep_air     = ṁ_sep_air,
+		ṁ_par_air     = ṁ_par_air,
+		power_crusher = power_crusher1 * u"kW",
+		T_out_cool    = T_out_cool1 * u"°C",
+		T_in_sep      = T_in_sep1 * u"°C",
+		T_out_rec     = T_out_rec1 * u"°C",
+		verbose       = false
 	)
 
 	report(model)
@@ -3856,7 +3873,7 @@ version = "3.5.0+0"
 # ╟─7666c8a3-1200-4827-809c-18e383501b70
 # ╠═476cdc10-f435-4af5-af77-fe107edd3580
 # ╟─076e0734-a39c-4f60-ae95-fe62e8e61076
-# ╠═259238bf-7fd4-487c-999f-f864ebe472f6
+# ╟─259238bf-7fd4-487c-999f-f864ebe472f6
 # ╟─4fb76d50-72bd-483a-9835-48058df5cc55
 # ╟─ed994cb4-553d-4ec5-b36d-fa30d46373c8
 # ╟─6491e060-cf27-11ee-14d2-bbfe55d17ee8
@@ -3887,6 +3904,7 @@ version = "3.5.0+0"
 # ╟─9e7ff999-8fe7-4f34-9f5f-dfb09e17754a
 # ╟─5c204dd1-3c56-4942-8cd6-f1b894f114e8
 # ╟─5a2187ea-bc66-470f-8dfb-754e01afb485
+# ╟─6bf34eae-5ba7-431d-a2a4-c184ce5e46ec
 # ╟─973aa28a-71bb-4149-8265-6a6ccbdf414c
 # ╟─b99a067e-e166-4e75-a538-5c6d5334a25e
 # ╟─043062dc-dfda-4c33-a35f-95cd2a2c78a0

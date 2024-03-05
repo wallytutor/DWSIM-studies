@@ -8,70 +8,114 @@ using InteractiveUtils
 using Luxor
 
 # ╔═╡ 86f9737d-124e-4010-bac9-ee6c63057970
-@svg let
-	halign = :center
-	valign = :middle
-	
-	colorbkg = "#EEEEEE"
-	colorair = "#0055FF"
-	colorsol = "#FF2200"
-	colormix = "#FF552F"
-	
-	background(colorbkg)
-	
-	let # Leak air (7+9).
-		sethue(colorair)
-		move(Point(-280, -50))
-		line(Point(-250, -50))
-		line(Point(-200, 0))
-		strokepath()
-	end
-	
-	let # Clinker inlet.
-		sethue(colorsol)
-		move(Point(-280, 50))
-		line(Point(-250, 50))
-		line(Point(-200, 0))
-		strokepath()
-	end
-	
-	
-	let # Horizontal pipe.
-		sethue(colormix)
-		move(Point(-200, 0))
-		line(Point(-50, 0))
-		strokepath()
-	end
-	
-	let # Crushing air inlet.
-		sethue(colorair)
-		move(Point(-150, -50))
-		line(Point(-150, 0))
-		strokepath()
-	end
+function get_results_diagram(; kwargs...)
+	kwargs_dict = Dict(kwargs)
 
-	let # Joining points
-		radius = 3
-		sethue("black")
-		circle(Point(-200, 0), radius; action = :fill)
-		circle(Point(-150, 0), radius; action = :fill)
-	end
+	# For @svg
+	height = get(kwargs_dict, :height, 300)
+	width  = get(kwargs_dict, :width, 700)
+	saveas = get(kwargs_dict, :saveas, "crusher.svg")
 
-	let # Crusher
-		move(-50, 30)
-		line(Point(100, 30))
-		line(Point(100, -30))
-		line(Point(-50, -30))
-		closepath()
-
-		sethue("orange")
-		fillpreserve()
+	# Display control
+	showcrusher   = get(kwargs_dict, :showcrusher, true)
+	showseparator = get(kwargs_dict, :showseparator, true)
+	
+	@svg let
+		halign = :center
+		valign = :middle
 		
-		sethue("black")
-		strokepath()
-	end
+		colorbkg = "#EEEEEE"
+		colorair = "#0055FF"
+		colorsol = "#00AA44"
+		colormix = "#FF552F"
+		colorrfr = "#0099FF"
 		
-end 700 400 "crusher.svg"
+		background(colorbkg)
+		
+		let # Leak air (7+9).
+			move(Point(-280, -50))
+			line(Point(-250, -50))
+			line(Point(-200, 0))
+			sethue(colorair); strokepath()
+		end
+		
+		let # Clinker inlet.
+			move(Point(-280, 50))
+			line(Point(-250, 50))
+			line(Point(-200, 0))
+			sethue(colorsol); strokepath()
+		end
+		
+		
+		let # Crushing pipeline.
+			move(Point(-200, 0))
+			line(Point(150, 0))
+			line(Point(150, -100))
+			# move(Point(150, -100))
+			line(Point(250, -100))
+			sethue(colormix); strokepath()
+		end
+		
+		let # Crushing air inlet.
+			move(Point(-150, -50))
+			line(Point(-150, 0))
+			sethue(colorair); strokepath()
+		end
+	
+		showcrusher && let # Crusher.
+			move(-50, 30)
+			line(Point(100, 30))
+			line(Point(100, -30))
+			line(Point(-50, -30))
+			closepath()
+			sethue("orange"); fillpreserve()
+			sethue("black");  strokepath()
+		end
+
+		let # Cooling system.
+			move(Point(75, 80))
+			line(Point(75, 0))
+			line(Point(-25, 0))
+			line(Point(-25, 80))
+			sethue(colorrfr); strokepath()
+		end
+		
+		let # Separator air.
+			move(Point(100, -50))
+			line(Point(150, -50))
+			sethue(colorair); strokepath()
+		end
+		
+		let # Recirculation pipe.
+			move(Point(150, -100))
+			line(Point(-100, -100))
+			line(Point(-100, 0))
+			sethue(colorsol); strokepath()
+		end
+	
+		showseparator && let # Separator.
+			move(150, -80)
+			line(Point(130, -114))
+			line(Point(170, -114))
+			closepath()
+			sethue("gray"); fillpreserve()
+			sethue("black");  strokepath()
+		end
+	
+		let # Joining points.
+			radius = 3
+			sethue("black")
+			circle(Point(-200, 0), radius; action = :fill)
+			circle(Point(-150, 0), radius; action = :fill)
+			circle(Point(-100, 0), radius; action = :fill)
+			circle(Point(150, -50), radius; action = :fill)
+		end
+		
+	end width height saveas
+end
+
+# ╔═╡ c6d209aa-ea40-457c-a135-cef80f8cbf8d
+get_results_diagram(;)
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -705,5 +749,6 @@ version = "3.5.0+0"
 # ╔═╡ Cell order:
 # ╠═00f54590-da5a-11ee-3106-1d02611816a3
 # ╠═86f9737d-124e-4010-bac9-ee6c63057970
+# ╠═c6d209aa-ea40-457c-a135-cef80f8cbf8d
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

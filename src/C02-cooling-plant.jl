@@ -8,10 +8,11 @@ using InteractiveUtils
 begin
 	@info "Loading packages..."
 
+	import PlutoUI
+	import Luxor
+	
 	using CairoMakie
-	# using Clapeyron
 	using ModelingToolkit
-	using PlutoUI
 	using Polynomials
 	using Psychro
 	using Roots
@@ -19,34 +20,50 @@ begin
 	using SteamTables
 	using Thermodynamics
 	using Unitful
+
+	# Maybe use in the future!
+	# using Clapeyron
 end
 
 # ╔═╡ d4189065-6aab-4920-bd21-22bc69f92ad5
 md"""
 # Model verification
 
-$(TableOfContents())
+$(PlutoUI.TableOfContents())
 """
 
-# ╔═╡ 3ddb3d01-9ae3-4beb-ab41-e2a57e0ecc12
+# ╔═╡ 7666c8a3-1200-4827-809c-18e383501b70
 md"""
-## Check water cooling power
+## Reference water cooling
 """
 
-# ╔═╡ 855e9382-1edc-4865-9c13-19b52631fdd2
-md"""
-## Check air properties
+# ╔═╡ 476cdc10-f435-4af5-af77-fe107edd3580
+let
+	# TODO add all cases from table
+	
+	# water = Water()
+	
+	# V̇ = 2.0u"m^3/hr"
+	
+	# T = [20u"°C"; 40u"°C"]
+	
+	# ρ = density(water, T[1], PREF * u"Pa")
+	
+	# H = map(x->SpecificH(PREF * u"Pa", x), T)
+	
+	# Q̇ = uconvert(u"kW", ρ * V̇ * diff(H)[1]) 
 
-!!! warning "IMPORTANT"
-
-	 The polynomial fit in the following cell was manually copied and stored as a constant. If any updates are provided to the air enthalpy computation method, this needs to be restored. This choice was made to make it easier to export developed code to an external module.
-
-"""
+	# @info "Reference cooling power of $(Q̇)"
+end
 
 # ╔═╡ 076e0734-a39c-4f60-ae95-fe62e8e61076
 md"""
-## Creating streams
+## Current air cooling
 """
+
+# ╔═╡ 6ecea6d3-18ea-484e-8a4f-b78a88589917
+struct AirCooledCrusher
+end
 
 # ╔═╡ ed994cb4-553d-4ec5-b36d-fa30d46373c8
 md"""
@@ -144,6 +161,116 @@ function get_stream_si_units(ṁ ,T, P)
 	return (uconvert(u"kg/s", ṁ), uconvert(u"K", T), uconvert(u"Pa", P))
 end
 
+# ╔═╡ 5a2187ea-bc66-470f-8dfb-754e01afb485
+"Graphical display of crusher balance results."
+function get_results_diagram(; kwargs...)
+	kwargs_dict = Dict(kwargs)
+
+	# For @svg
+	height = get(kwargs_dict, :height, 300)
+	width  = get(kwargs_dict, :width, 700)
+	saveas = get(kwargs_dict, :saveas, "crusher.svg")
+
+	# Display control
+	showcrusher   = get(kwargs_dict, :showcrusher, true)
+	showseparator = get(kwargs_dict, :showseparator, true)
+	
+	Luxor.@svg let
+		halign = :center
+		valign = :middle
+		
+		colorbkg = "#EEEEEE"
+		colorair = "#0055FF"
+		colorsol = "#00AA44"
+		colormix = "#FF552F"
+		colorrfr = "#0099FF"
+		
+		Luxor.background(colorbkg)
+		
+		let # Leak air (7+9).
+			Luxor.move(Luxor.Point(-280, -50))
+			Luxor.line(Luxor.Point(-250, -50))
+			Luxor.line(Luxor.Point(-200, 0))
+			Luxor.sethue(colorair); Luxor.strokepath()
+		end
+		
+		let # Clinker inlet.
+			Luxor.move(Luxor.Point(-280, 50))
+			Luxor.line(Luxor.Point(-250, 50))
+			Luxor.line(Luxor.Point(-200, 0))
+			Luxor.sethue(colorsol); Luxor.strokepath()
+		end
+		
+		
+		let # Crushing pipeline.
+			Luxor.move(Luxor.Point(-200, 0))
+			Luxor.line(Luxor.Point(150, 0))
+			Luxor.line(Luxor.Point(150, -100))
+			Luxor.line(Luxor.Point(250, -100))
+			Luxor.sethue(colormix); Luxor.strokepath()
+		end
+		
+		let # Crushing air inlet.
+			Luxor.move(Luxor.Point(-150, -50))
+			Luxor.line(Luxor.Point(-150, 0))
+			Luxor.sethue(colorair); Luxor.strokepath()
+		end
+	
+		showcrusher && let # Crusher.
+			Luxor.move(-50, 30)
+			Luxor.line(Luxor.Point(100, 30))
+			Luxor.line(Luxor.Point(100, -30))
+			Luxor.line(Luxor.Point(-50, -30))
+			Luxor.closepath()
+			Luxor.sethue("orange"); Luxor.fillpreserve()
+			Luxor.sethue("black"); Luxor.strokepath()
+		end
+
+		let # Cooling system.
+			Luxor.move(Luxor.Point(75, 80))
+			Luxor.line(Luxor.Point(75, 0))
+			Luxor.line(Luxor.Point(-25, 0))
+			Luxor.line(Luxor.Point(-25, 80))
+			Luxor.sethue(colorrfr); Luxor.strokepath()
+		end
+		
+		let # Separator air.
+			Luxor.move(Luxor.Point(100, -50))
+			Luxor.line(Luxor.Point(150, -50))
+			Luxor.sethue(colorair); Luxor.strokepath()
+		end
+		
+		let # Recirculation pipe.
+			Luxor.move(Luxor.Point(150, -100))
+			Luxor.line(Luxor.Point(-100, -100))
+			Luxor.line(Luxor.Point(-100, 0))
+			Luxor.sethue(colorsol); Luxor.strokepath()
+		end
+	
+		showseparator && let # Separator.
+			Luxor.move(150, -80)
+			Luxor.line(Luxor.Point(130, -114))
+			Luxor.line(Luxor.Point(170, -114))
+			Luxor.closepath()
+			Luxor.sethue("gray"); Luxor.fillpreserve()
+			Luxor.sethue("black"); Luxor.strokepath()
+		end
+	
+		let # Joining points.
+			radius = 3
+			Luxor.sethue("black")
+			Luxor.circle(Luxor.Point(-200, 0), radius; action = :fill)
+			Luxor.circle(Luxor.Point(-150, 0), radius; action = :fill)
+			Luxor.circle(Luxor.Point(-100, 0), radius; action = :fill)
+			Luxor.circle(Luxor.Point(150, -50), radius; action = :fill)
+		end
+		
+	end width height saveas
+end
+
+# ╔═╡ 4fb76d50-72bd-483a-9835-48058df5cc55
+get_results_diagram(;)
+
 # ╔═╡ 973aa28a-71bb-4149-8265-6a6ccbdf414c
 md"""
 ### Parameters
@@ -196,21 +323,6 @@ begin
 	
 	@doc "Evaluates the density of material [kg/m³]."
 	density
-end
-
-# ╔═╡ bc62a1d5-aeb2-4bec-a22d-15499f54056f
-let
-	water = Water()
-	
-	V̇ = 2.0u"m^3/hr"
-	
-	T = [20u"°C"; 40u"°C"]
-	
-	ρ = density(water, T[1], PREF * u"Pa")
-	
-	H = map(x->SpecificH(PREF * u"Pa", x), T)
-	
-	Q̇ = uconvert(u"kW", ρ * V̇ * diff(H)[1]) 
 end
 
 # ╔═╡ b03e91ec-40b9-441c-bca5-e7d3e7e6f88a
@@ -341,53 +453,6 @@ begin
 		return EnergyStream(e₁.ḣ + e₂.ḣ)
 	end
 end
-
-# ╔═╡ 694b2733-2715-45b9-a153-4addc1f88e52
-let
-	# XXX: the behaviour in `LinRange` is different from what happens after
-	# one calls `ustrip` for a single value. Here outputs are already in K.
-	T = LinRange(0.0u"°C", 200.0u"°C", 1000+1)
-	H = get_air_enthalpy_function().(T)
-
-	cut = 100
-	hf = fit(ustrip(T), ustrip(H), 2; var = :T)
-	Hf = hf.(ustrip(T)[begin:cut:end])
-
-	f = Figure(size = (700, 400))
-	ax = Axis(f[1, 1]; title = string(hf))
-	lines!(ax, ustrip(T), ustrip(H) ./ 1000; color = :black)
-	scatter!(ax, ustrip(T)[begin:cut:end], Hf ./ 1000; color = :red)
-	ax.xlabel = "Temperature [K]"
-	ax.ylabel = "Enthalpy [kJ/kg]"
-	f
-end
-
-# ╔═╡ 5868861a-7b8c-4711-81c5-15fe4bc2d4b2
-let
-	@info "Implementation testing (draft mode)"
-
-	T = 20u"°C"
-	P = 1.0u"atm"
-	
-	study_stream(ṁ) = ustrip.(get_stream_si_units(ṁ ,T, P))
-	
-	water   = Water()
-	clinker = Clinker()
-	air     = Air()
-
-	waterpipe  = StreamPipeline([water])
-	cementpipe = StreamPipeline([clinker, air])
-
-	ṁw, Tw, Pw = study_stream(900.0u"kg/hr")
-	ṁc, Tc, Pc = study_stream(500.0u"kg/hr")
-	ṁa, Ta, Pa = study_stream(250.0u"kg/hr")
-	
-	sw = MaterialStream(ṁw, Tw, Pw, [1.0], waterpipe)
-	sc = MaterialStream(ṁc, Tc, Pc, [1.0, 0.0], cementpipe)
-	sa = MaterialStream(ṁa, Ta, Pa, [0.0, 1.0], cementpipe)
-
-	sc + sa
-end;
 
 # ╔═╡ c4e10dbe-9f02-4156-aeba-8b3a4cdd4761
 """ Represents a solids separator with efficiency ϕ.
@@ -748,6 +813,63 @@ tosep = let
 	@info recirc
 end
 
+# ╔═╡ e27b81f1-0f3d-4825-b033-81c49778c962
+md"""
+## Verifications
+"""
+
+# ╔═╡ f1ef5fc2-1b21-4f10-9966-faa31e413735
+md"""
+### Water cooling power
+"""
+
+# ╔═╡ 57155236-83b5-41cb-b404-533ce23a86c3
+let
+	water = Water()
+	
+	V̇ = 2.0u"m^3/hr"
+	
+	T = [20u"°C"; 40u"°C"]
+	
+	ρ = density(water, T[1], PREF * u"Pa")
+	
+	H = map(x->SpecificH(PREF * u"Pa", x), T)
+	
+	Q̇ = uconvert(u"kW", ρ * V̇ * diff(H)[1]) 
+
+	@info "Reference cooling power of $(Q̇)"
+end
+
+# ╔═╡ 855e9382-1edc-4865-9c13-19b52631fdd2
+md"""
+### Air properties
+
+!!! warning "IMPORTANT"
+
+	 The polynomial fit in the following cell was manually copied and stored as a constant. If any updates are provided to the air enthalpy computation method, this needs to be restored. This choice was made to make it easier to export developed code to an external module.
+
+"""
+
+# ╔═╡ 694b2733-2715-45b9-a153-4addc1f88e52
+let
+	# XXX: the behaviour in `LinRange` is different from what happens after
+	# one calls `ustrip` for a single value. Here outputs are already in K.
+	T = LinRange(0.0u"°C", 200.0u"°C", 1000+1)
+	H = get_air_enthalpy_function().(T)
+
+	cut = 100
+	hf = fit(ustrip(T), ustrip(H), 2; var = :T)
+	Hf = hf.(ustrip(T)[begin:cut:end])
+
+	f = Figure(size = (700, 400))
+	ax = Axis(f[1, 1]; title = string(hf))
+	lines!(ax, ustrip(T), ustrip(H) ./ 1000; color = :black)
+	scatter!(ax, ustrip(T)[begin:cut:end], Hf ./ 1000; color = :red)
+	ax.xlabel = "Temperature [K]"
+	ax.ylabel = "Enthalpy [kJ/kg]"
+	f
+end
+
 # ╔═╡ c3abf986-a852-480d-a624-18d7631edcc7
 md"""
 ## Tests
@@ -810,10 +932,38 @@ let
 	@assert test_solids_separator()
 end
 
+# ╔═╡ 5868861a-7b8c-4711-81c5-15fe4bc2d4b2
+let
+	@info "Implementation testing (draft mode)"
+
+	T = 20u"°C"
+	P = 1.0u"atm"
+	
+	study_stream(ṁ) = ustrip.(get_stream_si_units(ṁ ,T, P))
+	
+	water   = Water()
+	clinker = Clinker()
+	air     = Air()
+
+	waterpipe  = StreamPipeline([water])
+	cementpipe = StreamPipeline([clinker, air])
+
+	ṁw, Tw, Pw = study_stream(900.0u"kg/hr")
+	ṁc, Tc, Pc = study_stream(500.0u"kg/hr")
+	ṁa, Ta, Pa = study_stream(250.0u"kg/hr")
+	
+	sw = MaterialStream(ṁw, Tw, Pw, [1.0], waterpipe)
+	sc = MaterialStream(ṁc, Tc, Pc, [1.0, 0.0], cementpipe)
+	sa = MaterialStream(ṁa, Ta, Pa, [0.0, 1.0], cementpipe)
+
+	sc + sa
+end;
+
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+Luxor = "ae8d54c2-7ccd-5906-9d76-62fc9837b5bc"
 ModelingToolkit = "961ee093-0014-501f-94e3-6117800e7a78"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 Polynomials = "f27b6e38-b328-58d1-80ce-0feddd5e7a45"
@@ -826,6 +976,7 @@ Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [compat]
 CairoMakie = "~0.11.5"
+Luxor = "~3.8.0"
 ModelingToolkit = "~8.75.0"
 PlutoUI = "~0.7.54"
 Polynomials = "~4.0.6"
@@ -842,7 +993,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.9.3"
 manifest_format = "2.0"
-project_hash = "01b73c3f9d588861746a6c6340cc59826efe28a6"
+project_hash = "1fcf405ed3aa922cf1f1e1bed77d26cae6441cac"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "41c37aa88889c171f1300ceac1313c06e891d245"
@@ -1381,6 +1532,12 @@ git-tree-sha1 = "2140cd04483da90b2da7f99b2add0750504fc39c"
 uuid = "411431e0-e8b7-467b-b5e0-f676ba4f2910"
 version = "0.1.2"
 
+[[deps.FFMPEG]]
+deps = ["FFMPEG_jll"]
+git-tree-sha1 = "b57e3acbe22f8484b4b5ff66a7499717fe1a9cc8"
+uuid = "c87230d0-a227-11e9-1b43-d7ebe4e7570a"
+version = "0.4.1"
+
 [[deps.FFMPEG_jll]]
 deps = ["Artifacts", "Bzip2_jll", "FreeType2_jll", "FriBidi_jll", "JLLWrappers", "LAME_jll", "Libdl", "Ogg_jll", "OpenSSL_jll", "Opus_jll", "PCRE2_jll", "Zlib_jll", "libaom_jll", "libass_jll", "libfdk_aac_jll", "libvorbis_jll", "x264_jll", "x265_jll"]
 git-tree-sha1 = "466d45dc38e15794ec7d5d63ec03d776a9aff36e"
@@ -1820,6 +1977,12 @@ weakdeps = ["FastBroadcast"]
     [deps.JumpProcesses.extensions]
     JumpProcessFastBroadcastExt = "FastBroadcast"
 
+[[deps.Juno]]
+deps = ["Base64", "Logging", "Media", "Profile"]
+git-tree-sha1 = "07cb43290a840908a771552911a6274bc6c072c7"
+uuid = "e5e0dc1b-0480-54bc-9374-aad01c23163d"
+version = "0.8.4"
+
 [[deps.KLU]]
 deps = ["LinearAlgebra", "SparseArrays", "SuiteSparse_jll"]
 git-tree-sha1 = "884c2968c2e8e7e6bf5956af88cb46aa745c854b"
@@ -1853,6 +2016,12 @@ deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "f6250b16881adf048549549fba48b1161acdac8c"
 uuid = "c1c5ebd0-6772-5130-a774-d5fcae4a789d"
 version = "3.100.1+0"
+
+[[deps.LERC_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
+git-tree-sha1 = "bf36f528eec6634efc60d7ec062008f171071434"
+uuid = "88015f11-f218-50d7-93a8-a6af411a945d"
+version = "3.0.0+1"
 
 [[deps.LLVM]]
 deps = ["CEnum", "LLVMExtra_jll", "Libdl", "Preferences", "Printf", "Requires", "Unicode"]
@@ -1997,6 +2166,18 @@ git-tree-sha1 = "9c30530bf0effd46e15e0fdcf2b8636e78cbbd73"
 uuid = "4b2f31a3-9ecc-558c-b454-b3730dcb73e9"
 version = "2.35.0+0"
 
+[[deps.Librsvg_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Pango_jll", "Pkg", "gdk_pixbuf_jll"]
+git-tree-sha1 = "ae0923dab7324e6bc980834f709c4cd83dd797ed"
+uuid = "925c91fb-5dd6-59dd-8e8c-345e74382d89"
+version = "2.54.5+0"
+
+[[deps.Libtiff_jll]]
+deps = ["Artifacts", "JLLWrappers", "JpegTurbo_jll", "LERC_jll", "Libdl", "XZ_jll", "Zlib_jll", "Zstd_jll"]
+git-tree-sha1 = "6355fb9a4d22d867318db186fd09b09b35bd2ed7"
+uuid = "89763e89-9b03-5906-acba-b20f662cd828"
+version = "4.6.0+0"
+
 [[deps.Libuuid_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "7f3efec06033682db852f8b3bc3c1d2b0a0ab066"
@@ -2090,6 +2271,12 @@ weakdeps = ["ChainRulesCore", "ForwardDiff", "SpecialFunctions"]
     ForwardDiffExt = ["ChainRulesCore", "ForwardDiff"]
     SpecialFunctionsExt = "SpecialFunctions"
 
+[[deps.Luxor]]
+deps = ["Base64", "Cairo", "Colors", "DataStructures", "Dates", "FFMPEG", "FileIO", "Juno", "LaTeXStrings", "PrecompileTools", "Random", "Requires", "Rsvg"]
+git-tree-sha1 = "aa3eb624552373a6204c19b00e95ce62ea932d32"
+uuid = "ae8d54c2-7ccd-5906-9d76-62fc9837b5bc"
+version = "3.8.0"
+
 [[deps.MIMEs]]
 git-tree-sha1 = "65f28ad4b594aebe22157d6fac869786a255b7eb"
 uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
@@ -2160,6 +2347,12 @@ version = "0.1.1"
 deps = ["Artifacts", "Libdl"]
 uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
 version = "2.28.2+0"
+
+[[deps.Media]]
+deps = ["MacroTools", "Test"]
+git-tree-sha1 = "75a54abd10709c01f1b86b84ec225d26e840ed58"
+uuid = "e89f7d12-3494-54d1-8411-f7d8b9ae1f27"
+version = "0.5.0"
 
 [[deps.Missings]]
 deps = ["DataAPI"]
@@ -2526,6 +2719,10 @@ version = "0.5.5"
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 
+[[deps.Profile]]
+deps = ["Printf"]
+uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
+
 [[deps.ProgressMeter]]
 deps = ["Distributed", "Printf"]
 git-tree-sha1 = "00099623ffee15972c16111bcf84c58a0051257c"
@@ -2680,6 +2877,12 @@ version = "2.1.2"
 git-tree-sha1 = "40b9edad2e5287e05bd413a38f61a8ff55b9557b"
 uuid = "5eaf0fd0-dfba-4ccb-bf02-d820a40db705"
 version = "0.2.1"
+
+[[deps.Rsvg]]
+deps = ["Cairo", "Glib_jll", "Librsvg_jll"]
+git-tree-sha1 = "3d3dc66eb46568fb3a5259034bfc752a0eb0c686"
+uuid = "c4c386cf-5103-5370-be45-f3a111cca3b8"
+version = "1.0.0"
 
 [[deps.RuntimeGeneratedFunctions]]
 deps = ["ExprTools", "SHA", "Serialization"]
@@ -3179,6 +3382,12 @@ git-tree-sha1 = "91844873c4085240b95e795f692c4cec4d805f8a"
 uuid = "aed1982a-8fda-507f-9586-7b0439959a61"
 version = "1.1.34+0"
 
+[[deps.XZ_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "ac88fb95ae6447c8dda6a5503f3bafd496ae8632"
+uuid = "ffd25f8a-64ca-5728-b0f7-c24cf3aae800"
+version = "5.4.6+0"
+
 [[deps.Xorg_libX11_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libxcb_jll", "Xorg_xtrans_jll"]
 git-tree-sha1 = "afead5aba5aa507ad5a3bf01f58f82c8d1403495"
@@ -3231,6 +3440,18 @@ version = "1.5.0+0"
 deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
 version = "1.2.13+0"
+
+[[deps.Zstd_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "49ce682769cd5de6c72dcf1b94ed7790cd08974c"
+uuid = "3161d3a3-bdf6-5164-811a-617609db77b4"
+version = "1.5.5+0"
+
+[[deps.gdk_pixbuf_jll]]
+deps = ["Artifacts", "Glib_jll", "JLLWrappers", "JpegTurbo_jll", "Libdl", "Libtiff_jll", "Xorg_libX11_jll", "libpng_jll"]
+git-tree-sha1 = "86e7731be08b12fa5e741f719603ae740e16b666"
+uuid = "da03df04-f53b-5353-a52f-6a8b0620ced0"
+version = "2.42.10+0"
 
 [[deps.isoband_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -3304,15 +3525,14 @@ version = "3.5.0+0"
 
 # ╔═╡ Cell order:
 # ╟─d4189065-6aab-4920-bd21-22bc69f92ad5
-# ╟─6491e060-cf27-11ee-14d2-bbfe55d17ee8
-# ╟─3ddb3d01-9ae3-4beb-ab41-e2a57e0ecc12
-# ╟─bc62a1d5-aeb2-4bec-a22d-15499f54056f
-# ╟─855e9382-1edc-4865-9c13-19b52631fdd2
-# ╟─694b2733-2715-45b9-a153-4addc1f88e52
+# ╟─7666c8a3-1200-4827-809c-18e383501b70
+# ╠═476cdc10-f435-4af5-af77-fe107edd3580
 # ╟─076e0734-a39c-4f60-ae95-fe62e8e61076
-# ╟─5868861a-7b8c-4711-81c5-15fe4bc2d4b2
+# ╠═4fb76d50-72bd-483a-9835-48058df5cc55
+# ╠═6ecea6d3-18ea-484e-8a4f-b78a88589917
 # ╠═fb91bffc-78b2-46f9-a28d-bd42810440c3
 # ╟─ed994cb4-553d-4ec5-b36d-fa30d46373c8
+# ╟─6491e060-cf27-11ee-14d2-bbfe55d17ee8
 # ╟─5fb0b8ea-0d30-4496-9f66-dc70dfed94ed
 # ╟─233e95d3-9611-4fdf-b12f-3ce43434866d
 # ╟─e1c94f16-9d56-4965-86d1-abfc19195b87
@@ -3335,16 +3555,23 @@ version = "3.5.0+0"
 # ╟─dae005f2-8b15-47ae-8170-e56e43b74996
 # ╟─9e7ff999-8fe7-4f34-9f5f-dfb09e17754a
 # ╟─5c204dd1-3c56-4942-8cd6-f1b894f114e8
+# ╟─5a2187ea-bc66-470f-8dfb-754e01afb485
 # ╟─973aa28a-71bb-4149-8265-6a6ccbdf414c
 # ╟─b99a067e-e166-4e75-a538-5c6d5334a25e
 # ╟─043062dc-dfda-4c33-a35f-95cd2a2c78a0
 # ╟─04388a90-7355-4451-a8af-b030b600ad3f
 # ╟─ce400b07-d495-4e66-942a-f3a25570e747
 # ╟─59a8f15c-552e-47f7-9c33-5ca7ee340874
+# ╟─e27b81f1-0f3d-4825-b033-81c49778c962
+# ╟─f1ef5fc2-1b21-4f10-9966-faa31e413735
+# ╟─57155236-83b5-41cb-b404-533ce23a86c3
+# ╟─855e9382-1edc-4865-9c13-19b52631fdd2
+# ╟─694b2733-2715-45b9-a153-4addc1f88e52
 # ╟─c3abf986-a852-480d-a624-18d7631edcc7
 # ╟─80a047ba-3469-4598-b000-d97ea9c75753
 # ╟─d2129783-2048-420b-9634-e46d741ee1d2
 # ╟─858981f9-ea7a-4413-ab89-00d8987eb7d3
 # ╟─ffc9b07f-9639-4c77-a999-03807e3a520a
+# ╟─5868861a-7b8c-4711-81c5-15fe4bc2d4b2
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

@@ -62,7 +62,9 @@ md"""
 """
 
 # ╔═╡ 259238bf-7fd4-487c-999f-f864ebe472f6
+md"""
 
+"""
 
 # ╔═╡ ed994cb4-553d-4ec5-b36d-fa30d46373c8
 md"""
@@ -229,7 +231,7 @@ end
 
 # ╔═╡ 5a2187ea-bc66-470f-8dfb-754e01afb485
 "Graphical display of crusher balance results."
-function get_results_diagram(; kwargs...)
+function get_results_diagram(model; kwargs...)
 	kwargs_dict = Dict(kwargs)
 
 	# For @svg
@@ -926,6 +928,8 @@ end
 
 # ╔═╡ 4fb76d50-72bd-483a-9835-48058df5cc55
 let
+	# TODO add inputs with Nm3/h instead!
+	
 	# Solids separation efficiency.
 	ηseparator = 62.75
 	
@@ -949,7 +953,7 @@ let
 	# Pipeline inlet temperature before separator (measured).
 	T_in_sep = 73u"°C"
 	
-	model_new = AirCooledCrusherModel(;
+	model = AirCooledCrusherModel(;
 		T_env,
 		P_env,
 		ṁ_cooler,
@@ -962,8 +966,17 @@ let
 		T_out_cool,
 		T_in_sep,
 	)
-	
-	# get_results_diagram(;)
+
+	@info """
+
+	Coolant outlet temperature .... $(model.crusher.coolant.T - TREF) °C
+	Crusher outlet temperature .... $(model.crusher.product.T - TREF) °C
+	Separator outlet temperature .. $(model.separator.solids.T - TREF) °C
+	Recirculation flow ............ $(3600model.separator.solids.ṁ) kg/h
+	"""
+
+	model
+	# get_results_diagram(model)
 end
 
 # ╔═╡ e27b81f1-0f3d-4825-b033-81c49778c962

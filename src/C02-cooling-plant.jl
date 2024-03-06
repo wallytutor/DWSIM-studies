@@ -71,9 +71,6 @@ md"""
 ## Current air cooling
 """
 
-# ╔═╡ 283d4c0b-44aa-40c2-972a-575473af8dd1
-
-
 # ╔═╡ ed994cb4-553d-4ec5-b36d-fa30d46373c8
 md"""
 ## Implementation
@@ -81,7 +78,7 @@ md"""
 
 # ╔═╡ 88427bae-eeed-418b-acbe-f76b679ac18b
 md"""
-### System models
+### Air cooled system
 """
 
 # ╔═╡ 5fb0b8ea-0d30-4496-9f66-dc70dfed94ed
@@ -245,7 +242,8 @@ slider(rng, def) = PlutoUI.Slider(rng, default=def, show_value=true)
 md"""
 | Quantity | Type | Value | Unit |
 |---------:|:----:|:------|:----:|
-Separator efficiency | Tuning | $(@bind ηseparator1 slider(45.0:0.05:65.0, 47.65)) | [%] 
+Leak percentage | Tuning | $(@bind ϕleaks1 slider(0.0:1.0:100.0, 60.00)) | [%]
+Separator efficiency | Tuning | $(@bind ηseparator1 slider(45.0:0.05:65.0, 47.65)) | [%]
 Environment temp. | Measured | $(@bind T_env1 slider(-2.0:0.5:25.0, 5.0)) | [°C] 
 Cooling air final temp. | Measured | $(@bind T_out_cool1 slider(50.0:0.5:85.0, 75.0)) | [°C] 
 Temp. before separator | Measured | $(@bind T_in_sep1 slider(50.0:0.5:85.0, 73.0)) | [°C] 
@@ -254,6 +252,8 @@ Milling power | Controls | $(@bind power_crusher1 slider(90.0:1.0:120.0, 107.0))
 Clinker feed rate | Controls | $(@bind ṁ_clinker1 slider(450.0:10.0:900.0, 820.0)) | [kg/h]
 Crusher air flow | Controls | $(@bind ṁ_cru_air1 slider(1600.0:1.0:2500.0, 1881.0)) | Nm³/h
 Separator air flow | Controls | $(@bind ṁ_sep_air1 slider(300.0:1.0:500.0, 431.0)) | Nm³/h
+Total air flow | Controls | $(@bind ṁ_tot_air1 slider(2500.0:50.0:4000.0, 3600.0)) | Nm³/h
+ | | | $(@bind run1 PlutoUI.Button("Run")) |
 
 [^1]: Reference data from Feb 15th 2024 13h50.
 """
@@ -538,169 +538,6 @@ begin
 	end
 end
 
-# ╔═╡ 5a2187ea-bc66-470f-8dfb-754e01afb485
-"Graphical display of crusher balance results."
-function get_results_diagram(model; kwargs...)
-	function inlet_main(p0, p1, p2, c)
-		Luxor.sethue(c)
-		Luxor.arrow(p0, p1)
-		Luxor.move(p0)
-		Luxor.line(p1)
-		Luxor.line(p2)
-		Luxor.strokepath()
-	end
-	
-	kwargs_dict = Dict(kwargs)
-
-	# For @svg
-	height = get(kwargs_dict, :height, 300)
-	width  = get(kwargs_dict, :width, 700)
-	saveas = get(kwargs_dict, :saveas, "crusher.svg")
-
-	# Display control
-	showcrusher   = get(kwargs_dict, :showcrusher, true)
-	showseparator = get(kwargs_dict, :showseparator, true)
-	
-	Luxor.@svg let
-		halign = :center
-		valign = :middle
-		
-		colorbkg = "#EEEEEE"
-		colorair = "#0055FF"
-		colorsol = "#00AA44"
-		colormix = "#FF552F"
-		colorrfr = "#0099FF"
-		
-		Luxor.background(colorbkg)
-		
-		let # Leak air (7+9).
-			p0 = Luxor.Point(-280, -50)
-			p1 = Luxor.Point(-250, -50)
-			p2 = Luxor.Point(-200, 0)
-			inlet_main(p0, p1, p2, colorair)
-		end
-		
-		let # Clinker inlet.
-			p0 = Luxor.Point(-280, 50)
-			p1 = Luxor.Point(-250, 50)
-			p2 = Luxor.Point(-200, 0)
-			inlet_main(p0, p1, p2, colorsol)
-		end
-		
-		let # Crushing pipeline.
-			p0 = Luxor.Point(-200, 0)
-			p1 = Luxor.Point(150, 0)
-			p2 = Luxor.Point(150, -100)
-			p3 = Luxor.Point(250, -100)
-			Luxor.sethue(colormix)
-			Luxor.arrow(p2, p3)
-			Luxor.move(p0)
-			Luxor.line(p1)
-			Luxor.line(p2)
-			Luxor.line(p3)
-			Luxor.strokepath()
-		end
-		
-		let # Crushing air inlet.
-			p0 = Luxor.Point(-150, -50)
-			p1 = Luxor.Point(-150, 0)
-			Luxor.sethue(colorair)
-			Luxor.arrow(p0, p1)
-			Luxor.move(p0)
-			Luxor.line(p1)
-			Luxor.strokepath()
-		end
-	
-		showcrusher && let # Crusher.
-			Luxor.move(-50, 30)
-			Luxor.line(Luxor.Point(100, 30))
-			Luxor.line(Luxor.Point(100, -30))
-			Luxor.line(Luxor.Point(-50, -30))
-			Luxor.closepath()
-			Luxor.sethue("orange"); Luxor.fillpreserve()
-			Luxor.sethue("black"); Luxor.strokepath()
-		end
-
-		let # Cooling system.
-			arrowheadlength = 10
-			
-			p0 = Luxor.Point(75, 80)
-			p1 = Luxor.Point(75, 0)
-			p2 = Luxor.Point(-25, 0)
-			p3 = Luxor.Point(-25, 80)
-
-			pm = Luxor.Point(75, 40)
-			pn = Luxor.Point(-25, 40 + arrowheadlength)
-			
-			Luxor.sethue(colorrfr)
-			Luxor.arrow(p0, pm; arrowheadlength)
-			Luxor.arrow(p2, pn; arrowheadlength)
-			Luxor.move(p0)
-			Luxor.line(p1)
-			Luxor.line(p2)
-			Luxor.line(p3)
-			Luxor.strokepath()
-		end
-		
-		let # Separator air.
-			p0 = Luxor.Point(100, -50)
-			p1 = Luxor.Point(150, -50)
-			Luxor.sethue(colorair)
-			Luxor.arrow(p0, p1)
-			Luxor.move(p0)
-			Luxor.line(p1)
-			Luxor.strokepath()
-		end
-		
-		let # Recirculation pipe.
-			p0 = Luxor.Point(150, -100)
-			p1 = Luxor.Point(-100, -100)
-			p2 = Luxor.Point(-100, 0)
-			Luxor.sethue(colorsol)
-			Luxor.arrow(p1, p2)
-			Luxor.move(p0)
-			Luxor.line(p1)
-			Luxor.line(p2)
-			Luxor.strokepath()
-		end
-	
-		showseparator && let # Separator.
-			Luxor.move(150, -80)
-			Luxor.line(Luxor.Point(130, -114))
-			Luxor.line(Luxor.Point(170, -114))
-			Luxor.closepath()
-			Luxor.sethue("gray"); Luxor.fillpreserve()
-			Luxor.sethue("black"); Luxor.strokepath()
-		end
-	
-		let # Joining points.
-			radius = 2
-			Luxor.sethue("black")
-			Luxor.circle(Luxor.Point(-200, 0), radius; action = :fill)
-			Luxor.circle(Luxor.Point(-150, 0), radius; action = :fill)
-			Luxor.circle(Luxor.Point(-100, 0), radius; action = :fill)
-			Luxor.circle(Luxor.Point(150, -50), radius; action = :fill)
-		end
-
-		let # Text
-			text(s, p; halign = halign) = Luxor.text(s, p; halign, valign)
-			
-			celsius(T) = uconvert(u"°C", T)
-
-			crush_power = round(model.crusher.power.ḣ / 1000; digits = 1)
-
-			# kg_s_to_nm3h
-			
-			text("Environment at $(celsius(model.T_env))",
-				 Luxor.Point(-340, -140); halign = :left)
-
-			text("Crushing power $(crush_power) kW",
-				 Luxor.Point(25, -40); )
-		end
-		
-	end width height saveas
-end
-
 # ╔═╡ c4e10dbe-9f02-4156-aeba-8b3a4cdd4761
 """ Represents a solids separator with efficiency η.
 
@@ -862,6 +699,7 @@ struct AirCooledCrusherModel
 	ṁ_cru_air::Unitful.Quantity{Float64}
 	ṁ_sep_air::Unitful.Quantity{Float64}
 	ṁ_par_air::Unitful.Quantity{Float64}
+	ṁ_tot_air::Unitful.Quantity{Float64}
 	
 	power_crusher::Unitful.Quantity{Float64}
 	T_out_cool::Unitful.Quantity{Float64}
@@ -874,6 +712,8 @@ struct AirCooledCrusherModel
 	unitops::AirCooledCrusherUnits
 	crusher::CooledCrushingMill
 	separator::SolidsSeparator
+	cyclone::SolidsSeparator
+	otherair::MaterialStream
 	
 	function AirCooledCrusherModel(;
 			T_env,
@@ -883,6 +723,7 @@ struct AirCooledCrusherModel
 			ṁ_cru_air,
 			ṁ_sep_air,
 			ṁ_par_air,
+			ṁ_tot_air,
 			power_crusher,
 			ηseparator,
 			T_out_cool,
@@ -905,6 +746,7 @@ struct AirCooledCrusherModel
 		ṁ_cru_air = uconvert(u"kg/s", ṁ_cru_air)
 		ṁ_sep_air = uconvert(u"kg/s", ṁ_sep_air)
 		ṁ_par_air = uconvert(u"kg/s", ṁ_par_air)
+		ṁ_tot_air = uconvert(u"kg/s", ṁ_tot_air)
 
 		power_crusher = uconvert(u"W", power_crusher)
 		ηseparator = 0.01ηseparator
@@ -1003,6 +845,13 @@ struct AirCooledCrusherModel
 			ṁnow = recirculation.ṁ
 			itercount += 1
 		end
+
+		cyclone = SolidsSeparator(separator.others; η = 1.0)
+
+		# Total air leaving the system (after cyclone)
+		ṁ_oth_air = ustrip(ṁ_tot_air) - cyclone.others.ṁ
+		otherair = MaterialStream(ṁ_oth_air, ustrip(T_env),
+			                      ustrip(P_env), Y_air, pipe_prod)
 		
 		##########
 		# NEW
@@ -1017,6 +866,7 @@ struct AirCooledCrusherModel
 			ṁ_cru_air,
 			ṁ_sep_air,
 			ṁ_par_air,
+			ṁ_tot_air,
 			power_crusher,
 			T_out_cool,
 			T_in_sep,
@@ -1025,7 +875,9 @@ struct AirCooledCrusherModel
 			pipe_prod,
 			unitops,
 			crusher,
-			separator
+			separator,
+			cyclone,
+			otherair
 		)
 	end
 end
@@ -1051,7 +903,8 @@ function report(model::AirCooledCrusherModel)
 	- flow rate.............. $(fmt(3600model.separator.solids.ṁ)) kg/h
 	- initial temperature.... $(fmt(model.separator.solids.T - TREF)) °C
 	- final temperature...... $(fmt(ustrip(model.T_out_rec) - TREF)) °C
-	"""
+
+	""" model
 end
 
 # ╔═╡ 1a778f56-925f-4422-9b6a-56c7f29d4a4b
@@ -1062,22 +915,302 @@ const C_AIR::Float64 = PREF / (RGAS * TREF)
 "Convert [Nm³/h] to [kg/h]."
 nm3h_to_kg_h(q) = C_AIR * M_AIR  * q
 
-# ╔═╡ 4fb76d50-72bd-483a-9835-48058df5cc55
-figair, modelair = let
-	# TODO add inputs with Nm3/h instead!
+# ╔═╡ 2b8550b5-e6ea-45ea-adaa-89fe9c5adc12
+"Convert [kg/h] to [Nm³/h]."
+kg_h_to_nm3h(m) = m / (C_AIR * M_AIR)
+
+# ╔═╡ ac1b87dd-d51b-4f94-8ae6-d5aaba10f365
+"Add annotations to results diagram for given model."
+function label_system(model::AirCooledCrusherModel)
+	# halign = :center
+	valign = :middle
 	
+	round1(x) = round(x; digits = 1)
+	
+	celsius(T) = round1(ustrip(T) - TREF)
+
+	crush_power = round1(model.crusher.power.ḣ / 1000)
+	cooling_power = round1(model.crusher.loss.ḣ / 1000)
+
+	ops = model.unitops
+	ṁ_clinker = round1(3600ops.clinker_stream.ṁ)
+	ṁ_recircs = round1(3600model.separator.solids.ṁ)
+	ṁ_product = round1(3600model.cyclone.solids.ṁ)
+	
+	q_par_air = round1(kg_h_to_nm3h(3600ops.parasite_air_stream.ṁ))
+	q_cru_air = round1(kg_h_to_nm3h(3600ops.crusher_air_stream.ṁ))
+	q_sep_air = round1(kg_h_to_nm3h(3600ops.separator_air_stream.ṁ))
+	q_cooling = round1(kg_h_to_nm3h(3600ops.cooling_stream.ṁ))
+	q_tot_air = round1(kg_h_to_nm3h(3600ustrip(model.ṁ_tot_air)))
+	q_oth_air = round1(kg_h_to_nm3h(3600model.otherair.ṁ))
+
+	T_env = celsius(model.T_env)
+	T_recircs = celsius(model.separator.solids.T)
+	T_crush = celsius(model.crusher.product.T)
+	T_coolant = celsius(model.crusher.coolant.T)
+	T_in_sep = celsius(model.T_in_sep) # TODO store pipe!
+	T_out_rec = celsius(model.T_out_rec) # TODO store pipe!
+	
+	let # Controls
+		Luxor.sethue("black")
+		
+		Luxor.text("Environment at $(T_env) °C",
+			 Luxor.Point(-340, -140); valign, halign = :left)
+
+		Luxor.text("Crushing @ $(crush_power) kW",
+			 Luxor.Point(25, -20); valign, halign = :center)
+
+		Luxor.text("Cooling @ $(-1cooling_power) kW",
+			 Luxor.Point(25, 10); valign, halign = :center)
+		
+		Luxor.text("$(q_cooling) Nm³/h (0)",
+			 Luxor.Point(75, 65);  valign, halign = :left, angle = π/2)
+
+		Luxor.text("$(q_tot_air) Nm³/h (5)",
+			 Luxor.Point(255, -100); valign, halign = :left)
+		
+		Luxor.text("$(q_sep_air) Nm³/h (4)",
+			 Luxor.Point(96,  -70);  valign, halign = :right)
+		
+		Luxor.text("$(q_cru_air) Nm³/h (3)",
+			 Luxor.Point(-150, -60);  valign, halign = :center)
+		
+		Luxor.text("$(q_par_air) Nm³/h (2)",
+			 Luxor.Point(-269, -50); valign, halign = :right)
+		
+		Luxor.text("$(ṁ_clinker) kg/h (1)",
+			 Luxor.Point(-269, 50); valign, halign = :right)
+
+		Luxor.text("$(q_oth_air) Nm³/h (6)",
+			 Luxor.Point(240, -70); valign, halign = :left, angle = π/2)
+		
+		Luxor.text("$(ṁ_product) kg/h",
+			 Luxor.Point(210, -70); valign, halign = :left, angle = π/2)
+	end
+	
+	let # Measurements
+		Luxor.sethue("#FF2299")
+		
+		Luxor.text("$(T_coolant) °C",
+			 Luxor.Point(-25, 65); valign, halign = :left, angle = π/2)
+
+		Luxor.text("$(T_out_rec) °C",
+			 Luxor.Point(-90, -40); valign, halign = :left, angle = π/2)
+
+		Luxor.text("$(T_in_sep) °C",
+			 Luxor.Point(135, -69); valign, halign = :left, angle = π/2)
+	end
+
+	let # Fitted
+		Luxor.sethue("#9922FF")
+		
+		Luxor.text("$(ṁ_recircs) kg/h @ $(T_recircs) °C",
+			 Luxor.Point(25, -110); valign, halign = :center)
+	end
+
+	let # Main result
+		Luxor.sethue("#FF0000")
+		Luxor.fontsize(20)
+
+		Luxor.text("$(T_crush) °C",
+			 Luxor.Point(105, 15); valign, halign = :left)
+	end
+
+end
+
+# ╔═╡ 5a2187ea-bc66-470f-8dfb-754e01afb485
+"Graphical display of crusher balance results."
+function get_results_diagram(model; kwargs...)
+	function inlet_main(p0, p1, p2, c)
+		Luxor.sethue(c)
+		Luxor.arrow(p0, p1)
+		Luxor.move(p0)
+		Luxor.line(p1)
+		Luxor.line(p2)
+		Luxor.strokepath()
+	end
+	
+	kwargs_dict = Dict(kwargs)
+
+	# For @svg
+	height = get(kwargs_dict, :height, 300)
+	width  = get(kwargs_dict, :width, 700)
+	saveas = get(kwargs_dict, :saveas, "crusher.svg")
+
+	# Display control
+	showcrusher   = get(kwargs_dict, :showcrusher, true)
+	showseparator = get(kwargs_dict, :showseparator, true)
+	
+	Luxor.@svg let
+		colorbkg = "#EEEEEE"
+		colorair = "#0055FF"
+		colorsol = "#00AA44"
+		colormix = "#FF552F"
+		colorrfr = "#0099FF"
+		
+		Luxor.background(colorbkg)
+		
+		let # Leak air (7+9).
+			p0 = Luxor.Point(-265, -50)
+			p1 = Luxor.Point(-250, -50)
+			p2 = Luxor.Point(-200, 0)
+			inlet_main(p0, p1, p2, colorair)
+		end
+		
+		let # Clinker inlet.
+			p0 = Luxor.Point(-265, 50)
+			p1 = Luxor.Point(-250, 50)
+			p2 = Luxor.Point(-200, 0)
+			inlet_main(p0, p1, p2, colorsol)
+		end
+		
+		let # Crushing pipeline.
+			p0 = Luxor.Point(-200, 0)
+			p1 = Luxor.Point(125, 0)
+			p2 = Luxor.Point(125, -100)
+			p3 = Luxor.Point(200, -100)
+			Luxor.sethue(colormix)
+			Luxor.move(p0)
+			Luxor.line(p1)
+			Luxor.line(p2)
+			Luxor.line(p3)
+			Luxor.strokepath()
+		end
+		
+		let # Crushing air inlet.
+			p0 = Luxor.Point(-150, -50)
+			p1 = Luxor.Point(-150, 0)
+			Luxor.sethue(colorair)
+			Luxor.arrow(p0, p1)
+			Luxor.move(p0)
+			Luxor.line(p1)
+			Luxor.strokepath()
+		end
+	
+		showcrusher && let # Crusher.
+			Luxor.move(-50, 30)
+			Luxor.line(Luxor.Point(100, 30))
+			Luxor.line(Luxor.Point(100, -30))
+			Luxor.line(Luxor.Point(-50, -30))
+			Luxor.closepath()
+			Luxor.sethue("orange"); Luxor.fillpreserve()
+			Luxor.sethue("black"); Luxor.strokepath()
+		end
+
+		let # Cooling system.
+			arrowheadlength = 10
+			
+			p0 = Luxor.Point(75, 60)
+			p1 = Luxor.Point(75, 0)
+			p2 = Luxor.Point(-25, 0)
+			p3 = Luxor.Point(-25, 60)
+
+			pm = Luxor.Point(75, 40)
+			pn = Luxor.Point(-25, 40 + arrowheadlength)
+			
+			Luxor.sethue(colorrfr)
+			Luxor.arrow(p0, pm; arrowheadlength)
+			Luxor.arrow(p2, pn; arrowheadlength)
+			Luxor.move(p0)
+			Luxor.line(p1)
+			Luxor.line(p2)
+			Luxor.line(p3)
+			Luxor.strokepath()
+		end
+		
+		let # Separator air.
+			p0 = Luxor.Point(100, -70)
+			p1 = Luxor.Point(125, -70)
+			Luxor.sethue(colorair)
+			Luxor.arrow(p0, p1)
+			Luxor.move(p0)
+			Luxor.line(p1)
+			Luxor.strokepath()
+		end
+		
+		let # Recirculation pipe.
+			p0 = Luxor.Point(125, -100)
+			p1 = Luxor.Point(-100, -100)
+			p2 = Luxor.Point(-100, 0)
+			Luxor.sethue(colorsol)
+			Luxor.arrow(p1, p2)
+			Luxor.move(p0)
+			Luxor.line(p1)
+			Luxor.line(p2)
+			Luxor.strokepath()
+		end
+	
+		showseparator && let # Separator.
+			Luxor.move(125, -80)
+			Luxor.line(Luxor.Point(110, -114))
+			Luxor.line(Luxor.Point(140, -114))
+			Luxor.closepath()
+			Luxor.sethue("gray"); Luxor.fillpreserve()
+			Luxor.sethue("black"); Luxor.strokepath()
+		end
+
+		let # Packing products.
+			p0 = Luxor.Point(200, -100)
+			p1 = Luxor.Point(200, 0)
+			Luxor.sethue(colorsol)
+			Luxor.arrow(p0, p1)
+			Luxor.move(p0)
+			Luxor.line(p1)
+			Luxor.strokepath()
+
+			p0 = Luxor.Point(200, -100)
+			p1 = Luxor.Point(250, -100)
+			Luxor.sethue(colorair)
+			Luxor.arrow(p0, p1)
+			Luxor.move(p0)
+			Luxor.line(p1)
+			Luxor.strokepath()
+
+
+			p0 = Luxor.Point(230, 0)
+			p1 = Luxor.Point(230, -100)
+			Luxor.sethue(colorair)
+			Luxor.arrow(p0, p1)
+			Luxor.move(p0)
+			Luxor.line(p1)
+			Luxor.strokepath()
+		end
+		
+		showseparator && let # Packing.
+			Luxor.move(200, -80)
+			Luxor.line(Luxor.Point(185, -114))
+			Luxor.line(Luxor.Point(215, -114))
+			Luxor.closepath()
+			Luxor.sethue("gray"); Luxor.fillpreserve()
+			Luxor.sethue("black"); Luxor.strokepath()
+		end
+		
+		let # Joining points.
+			radius = 2
+			Luxor.sethue("black")
+			Luxor.circle(Luxor.Point(-200, 0), radius; action = :fill)
+			Luxor.circle(Luxor.Point(-150, 0), radius; action = :fill)
+			Luxor.circle(Luxor.Point(-100, 0), radius; action = :fill)
+			Luxor.circle(Luxor.Point(125, -70), radius; action = :fill)
+			Luxor.circle(Luxor.Point(230, -100), radius; action = :fill)
+		end
+
+		label_system(model)
+		
+	end width height saveas
+end
+
+# ╔═╡ 2d97cef6-0808-4edb-aee4-156da381d805
+let
 	# Controlled flows.
-	
-	ṁ_cooler  = nm3h_to_kg_h(800) * u"kg/hr"
-	
-	AIR_TOTAL = nm3h_to_kg_h(3600) * u"kg/hr"
-	
+	ṁ_tot_air = nm3h_to_kg_h(ṁ_tot_air1) * u"kg/hr"
 	ṁ_cru_air = nm3h_to_kg_h(ṁ_cru_air1) * u"kg/hr"
 	ṁ_sep_air = nm3h_to_kg_h(ṁ_sep_air1) * u"kg/hr"
-
+	
 	# TODO use the velocities instead, this is for test only!
 	# ṁ_par_air = 0u"kg/hr"  # (streams 7 and 9)
-	ṁ_par_air = (AIR_TOTAL - ṁ_cru_air - ṁ_sep_air) * 0.6
+	ṁ_par_air = (ṁ_tot_air - ṁ_cru_air - ṁ_sep_air) * ϕleaks1/100
+	ṁ_cooler  = nm3h_to_kg_h(800) * u"kg/hr"
 	
 	model = AirCooledCrusherModel(;
 		ηseparator    = ηseparator1,
@@ -1088,6 +1221,7 @@ figair, modelair = let
 		ṁ_cru_air     = ṁ_cru_air,
 		ṁ_sep_air     = ṁ_sep_air,
 		ṁ_par_air     = ṁ_par_air,
+		ṁ_tot_air     = ṁ_tot_air,
 		power_crusher = power_crusher1 * u"kW",
 		T_out_cool    = T_out_cool1 * u"°C",
 		T_in_sep      = T_in_sep1 * u"°C",
@@ -1098,18 +1232,9 @@ figair, modelair = let
 	report(model)
 	
 	fig = get_results_diagram(model)
-	fig, model
-end;
 
-# ╔═╡ 1f6392d0-9e20-44d5-8783-5bdac398eabe
-modelair
-
-# ╔═╡ 70a90e5b-5aab-4833-b503-1f003e5d2722
-figair
-
-# ╔═╡ 2b8550b5-e6ea-45ea-adaa-89fe9c5adc12
-"Convert [kg/h] to [Nm³/h]."
-kg_s_to_nm3h(m) = m / (C_AIR * M_AIR)
+	fig
+end
 
 # ╔═╡ e27b81f1-0f3d-4825-b033-81c49778c962
 md"""
@@ -3850,16 +3975,14 @@ version = "3.5.0+0"
 # ╠═476cdc10-f435-4af5-af77-fe107edd3580
 # ╟─076e0734-a39c-4f60-ae95-fe62e8e61076
 # ╟─259238bf-7fd4-487c-999f-f864ebe472f6
-# ╟─5a2187ea-bc66-470f-8dfb-754e01afb485
-# ╟─1f6392d0-9e20-44d5-8783-5bdac398eabe
-# ╟─70a90e5b-5aab-4833-b503-1f003e5d2722
-# ╠═283d4c0b-44aa-40c2-972a-575473af8dd1
-# ╠═4fb76d50-72bd-483a-9835-48058df5cc55
+# ╟─2d97cef6-0808-4edb-aee4-156da381d805
 # ╟─ed994cb4-553d-4ec5-b36d-fa30d46373c8
 # ╟─6491e060-cf27-11ee-14d2-bbfe55d17ee8
 # ╟─88427bae-eeed-418b-acbe-f76b679ac18b
 # ╟─6ecea6d3-18ea-484e-8a4f-b78a88589917
 # ╟─02e91a7a-9374-45f5-a1d2-41ff2b604aa2
+# ╟─5a2187ea-bc66-470f-8dfb-754e01afb485
+# ╟─ac1b87dd-d51b-4f94-8ae6-d5aaba10f365
 # ╟─5fb0b8ea-0d30-4496-9f66-dc70dfed94ed
 # ╟─233e95d3-9611-4fdf-b12f-3ce43434866d
 # ╟─e1c94f16-9d56-4965-86d1-abfc19195b87

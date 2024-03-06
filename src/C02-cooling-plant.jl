@@ -45,26 +45,17 @@ $(PlutoUI.TableOfContents())
 # ╔═╡ 7666c8a3-1200-4827-809c-18e383501b70
 md"""
 ## Reference water cooling
+
+Using current reference data[^1] regarding water cooling circuit flow rate and measured inlet and outlet temperatures, the abstracted heat
+
+```math
+\dot{Q} = ρ\dot{V}\Delta{H}=ρ\dot{V}\left\{H(T_{out})-H(T_{in})\right\}
+```
+
+Using this simple analysis we identify the cooling capacity of the system when operated under water cooling. In what follows, data from previous acquisitions will be ignored since no water flow rate was actually available and estimations were purely based on *known* production values.
+
+[^1]: Reference data from Mar 05th 2024.
 """
-
-# ╔═╡ 476cdc10-f435-4af5-af77-fe107edd3580
-let
-	# TODO add all cases from table
-	
-	# water = Water()
-	
-	# V̇ = 2.0u"m^3/hr"
-	
-	# T = [20u"°C"; 40u"°C"]
-	
-	# ρ = density(water, T[1], PREF * u"Pa")
-	
-	# H = map(x->SpecificH(PREF * u"Pa", x), T)
-	
-	# Q̇ = uconvert(u"kW", ρ * V̇ * diff(H)[1]) 
-
-	# @info "Reference cooling power of $(Q̇)"
-end
 
 # ╔═╡ 076e0734-a39c-4f60-ae95-fe62e8e61076
 md"""
@@ -144,6 +135,7 @@ struct AirCooledCrusherUnits
 	function AirCooledCrusherUnits(;
 			T_env,
 			P_env,
+			T_in_cool,
 			power_crusher,
 			pipe_cool,
 			pipe_prod,
@@ -163,7 +155,7 @@ struct AirCooledCrusherUnits
 		milling_power = EnergyStream(ustrip(power_crusher))
 	
 		# Cooling material stream.
-		cooling_stream = MaterialStream(ṁ_cooler, T, P, Y_cool, pipe_cool)
+		cooling_stream = MaterialStream(ṁ_cooler, T_in_cool, P, Y_cool, pipe_cool)
 		
 		# Clinker material stream.
 		clinker_stream = MaterialStream(ṁ_clinker, T, P, Y_clinker, pipe_prod)
@@ -238,22 +230,45 @@ end
 "Default slider with displayed value."
 slider(rng, def) = PlutoUI.Slider(rng, default=def, show_value=true)
 
+# ╔═╡ f0b08fbb-3226-4a43-b922-419d3d357482
+md"""
+| Quantity | Type | Value | Unit |
+|---------:|:----:|:------|:----:|
+Leak percentage | Tuning | $(@bind ϕleaks2 slider(0.0:0.5:100.0, 31.5)) | [%]
+Separator efficiency | Tuning | $(@bind ηseparator2 slider(45.0:0.05:65.0, 50.80)) | [%]
+Environment temp. | Measured | $(@bind T_env2 slider(-2.0:0.5:25.0, 5.0)) | [°C] 
+Cooling water final temp. | Measured | $(@bind T_out_cool2 slider(30.0:1.0:60.0, 55.0)) | [°C] 
+Temp. before separator | Measured | $(@bind T_in_sep2 slider(30.0:0.5:80.0, 40.0)) | [°C] 
+Temp. after recirculation | Measured | $(@bind T_out_rec2 slider(10.0:0.5:50.0, 30.0)) | [°C] 
+Milling power | Controls | $(@bind power_crusher2 slider(90.0:1.0:120.0, 105.0)) | [kW] 
+Clinker feed rate | Controls | $(@bind ṁ_clinker2 slider(450.0:10.0:900.0, 550.0)) | [kg/h]
+Crusher air flow | Controls | $(@bind q̇_cru_air2 slider(2000.0:10.0:3000.0, 2232.0)) | Nm³/h
+Separator air flow | Controls | $(@bind q̇_sep_air2 slider(300.0:10.0:800.0, 431.0)) | Nm³/h
+Total air flow | Controls | $(@bind q̇_tot_air2 slider(2500.0:50.0:4000.0, 3500.0)) | Nm³/h
+
+**TODO** fix units of cooling entry (here water) and see next model for more details.
+"""
+
 # ╔═╡ 259238bf-7fd4-487c-999f-f864ebe472f6
 md"""
 | Quantity | Type | Value | Unit |
 |---------:|:----:|:------|:----:|
-Leak percentage | Tuning | $(@bind ϕleaks1 slider(0.0:1.0:100.0, 60.00)) | [%]
+Use leak % below | Tuning | $(@bind useϕ1 PlutoUI.CheckBox(default=false)) |
+Leak percentage | Tuning | $(@bind ϕleaks1 slider(0.0:0.5:100.0, 31.5)) | [%]
 Separator efficiency | Tuning | $(@bind ηseparator1 slider(45.0:0.05:65.0, 47.65)) | [%]
 Environment temp. | Measured | $(@bind T_env1 slider(-2.0:0.5:25.0, 5.0)) | [°C] 
-Cooling air final temp. | Measured | $(@bind T_out_cool1 slider(50.0:0.5:85.0, 75.0)) | [°C] 
+Cooling air final temp. | Measured | $(@bind T_out_cool1 slider(50.0:1.0:100.0, 93.0)) | [°C] 
 Temp. before separator | Measured | $(@bind T_in_sep1 slider(50.0:0.5:85.0, 73.0)) | [°C] 
 Temp. after recirculation | Measured | $(@bind T_out_rec1 slider(30.0:0.5:50.0, 39.0)) | [°C] 
 Milling power | Controls | $(@bind power_crusher1 slider(90.0:1.0:120.0, 107.0)) | [kW] 
 Clinker feed rate | Controls | $(@bind ṁ_clinker1 slider(450.0:10.0:900.0, 820.0)) | [kg/h]
-Crusher air flow | Controls | $(@bind ṁ_cru_air1 slider(1600.0:1.0:2500.0, 1881.0)) | Nm³/h
-Separator air flow | Controls | $(@bind ṁ_sep_air1 slider(300.0:1.0:500.0, 431.0)) | Nm³/h
-Total air flow | Controls | $(@bind ṁ_tot_air1 slider(2500.0:50.0:4000.0, 3600.0)) | Nm³/h
- | | | $(@bind run1 PlutoUI.Button("Run")) |
+Crusher air flow | Controls | $(@bind q̇_cru_air1 slider(1600.0:10.0:2500.0, 1881.0)) | Nm³/h
+Separator air flow | Controls | $(@bind q̇_sep_air1 slider(300.0:10.0:800.0, 431.0)) | Nm³/h
+Total air flow | Controls | $(@bind q̇_tot_air1 slider(2500.0:50.0:4000.0, 3600.0)) | Nm³/h
+
+To-do's:
+- Evaluate global HTC in both pipelines using an imposed final temperature so that the model can be used in simulation mode.
+- Modify the model so that water cooling can be set in the same interface (no need of separate models per fluid).
 
 [^1]: Reference data from Feb 15th 2024 13h50.
 """
@@ -274,6 +289,12 @@ const PREF::Float64 = 101325.0
 # ╔═╡ 04388a90-7355-4451-a8af-b030b600ad3f
 "Normal atmospheric temperature [K]."
 const TREF::Float64 = 273.15
+
+# ╔═╡ ab7c84de-c9fe-4c7e-b6de-4f2b1c108feb
+"Compute normal flow rate based on measurements"
+function normal_flow_rate(; T, ⌀, U)
+	return 3600 * (TREF / T) * U * π * ⌀^2 / 4
+end
 
 # ╔═╡ ce400b07-d495-4e66-942a-f3a25570e747
 "Air mean molecular mass [kg/mol]."
@@ -538,6 +559,41 @@ begin
 	end
 end
 
+# ╔═╡ 476cdc10-f435-4af5-af77-fe107edd3580
+let
+	M = [
+		21.2   1.2   13.0  56.0;
+		18.8   1.1   10.0  55.0;
+		19.6   1.4   17.0  56.0;
+		18.6   1.5   10.0  55.0;
+		19.0   1.2   11.0  53.0;
+		20.0   1.4   19.0  55.0;
+		20.0   1.4   18.0  55.0;
+		20.0   1.4   17.0  54.0;
+	]
+	
+	h(T) = SpecificH(PREF * u"Pa", T)
+	ρ(T) = density(Water(), T, PREF * u"Pa")
+	
+	# h(T) =  4182.0u"J/(kg*K)" * T
+	# ρ(T) = 996.0u"kg/m^3"
+	
+	V̇ = uconvert.(u"m^3/s", M[:, 2] * u"m^3/hr")
+	T1 = uconvert.(u"K", M[:, 1] * u"°C")
+	T2 = uconvert.(u"K", M[:, 4] * u"°C")
+
+	ρw = map(ρ, T1)
+	ΔH = map(h, T2) - map(h, T1)
+
+	Q̇ = mean(uconvert.(u"kW", @. ρw * V̇ * ΔH))
+	V̇ = mean(M[:, 2])
+	
+	@info """
+	Reference cooling power.... $(round(ustrip(Q̇); digits = 1)) kW
+	Mean water flow rate....... $(round(V̇; digits = 1)) m³/h
+	"""
+end
+
 # ╔═╡ c4e10dbe-9f02-4156-aeba-8b3a4cdd4761
 """ Represents a solids separator with efficiency η.
 
@@ -702,6 +758,7 @@ struct AirCooledCrusherModel
 	ṁ_tot_air::Unitful.Quantity{Float64}
 	
 	power_crusher::Unitful.Quantity{Float64}
+	T_in_cool::Unitful.Quantity{Float64}
 	T_out_cool::Unitful.Quantity{Float64}
 	T_in_sep::Unitful.Quantity{Float64}
 	T_out_rec::Unitful.Quantity{Float64}
@@ -726,12 +783,14 @@ struct AirCooledCrusherModel
 			ṁ_tot_air,
 			power_crusher,
 			ηseparator,
+			T_in_cool,
 			T_out_cool,
 			T_in_sep,
 			T_out_rec,
 			max_iter = 100,
 			T_tol = 1.0e-08,
 			ṁ_tol = 1.0e-09,
+			cooler = Air(),
 			verbose = true
 		)
 		##########
@@ -751,6 +810,7 @@ struct AirCooledCrusherModel
 		power_crusher = uconvert(u"W", power_crusher)
 		ηseparator = 0.01ηseparator
 
+		T_in_cool  = uconvert(u"K", T_in_cool)
 		T_out_cool = uconvert(u"K", T_out_cool)
 		T_in_sep   = uconvert(u"K", T_in_sep)
 		T_out_rec  = uconvert(u"K", T_out_rec)
@@ -759,7 +819,7 @@ struct AirCooledCrusherModel
 		# WORKFLOW
 		##########
 
-		pipe_cool = StreamPipeline([Air()])
+		pipe_cool = StreamPipeline([cooler])
 		pipe_prod = StreamPipeline([Clinker(), Air()])
 
 		Y_cool    = [1.0]
@@ -772,6 +832,7 @@ struct AirCooledCrusherModel
 
 			T_env         = ustrip(T_env),
 			P_env         = ustrip(P_env),
+			T_in_cool     = ustrip(T_in_cool),
 			power_crusher = ustrip(power_crusher),
 			ṁ_cooler      = ustrip(ṁ_cooler),
 			ṁ_clinker     = ustrip(ṁ_clinker),
@@ -868,6 +929,7 @@ struct AirCooledCrusherModel
 			ṁ_par_air,
 			ṁ_tot_air,
 			power_crusher,
+			T_in_cool,
 			T_out_cool,
 			T_in_sep,
 			T_out_rec,
@@ -946,7 +1008,8 @@ function label_system(model::AirCooledCrusherModel)
 
 	T_env = celsius(model.T_env)
 	T_recircs = celsius(model.separator.solids.T)
-	T_crush = celsius(model.crusher.product.T)
+	T_crush1 = celsius(model.crusher.rawmeal.T)
+	T_crush2 = celsius(model.crusher.product.T)
 	T_coolant = celsius(model.crusher.coolant.T)
 	T_in_sep = celsius(model.T_in_sep) # TODO store pipe!
 	T_out_rec = celsius(model.T_out_rec) # TODO store pipe!
@@ -1010,9 +1073,12 @@ function label_system(model::AirCooledCrusherModel)
 
 	let # Main result
 		Luxor.sethue("#FF0000")
-		Luxor.fontsize(20)
+		Luxor.fontsize(16)
 
-		Luxor.text("$(T_crush) °C",
+		Luxor.text("$(T_crush1) °C",
+			 Luxor.Point(-55, 15); valign, halign = :right)
+
+		Luxor.text("$(T_crush2) °C",
 			 Luxor.Point(105, 15); valign, halign = :left)
 	end
 
@@ -1200,17 +1266,90 @@ function get_results_diagram(model; kwargs...)
 	end width height saveas
 end
 
+# ╔═╡ 7e3fde2d-2a78-408f-bcae-ab96ca880711
+let
+	# Contribution of leaks *through* crusher.
+	Q̇avai = q̇_tot_air2 - q̇_cru_air2 - q̇_sep_air2
+
+	# Select how to compute leak.
+	ϕ = ϕleaks2
+	q̇_par_air2 = (q̇_tot_air2 - q̇_cru_air2 - q̇_sep_air2) * ϕ/100
+	
+	# Controlled flows.
+	ṁ_tot_air = nm3h_to_kg_h(q̇_tot_air2) * u"kg/hr"
+	ṁ_cru_air = nm3h_to_kg_h(q̇_cru_air2) * u"kg/hr"
+	ṁ_sep_air = nm3h_to_kg_h(q̇_sep_air2) * u"kg/hr"
+
+	# Estimated flows.
+	ṁ_par_air = nm3h_to_kg_h(q̇_par_air2) * u"kg/hr"
+	ṁ_cooler  = 1300.0 * u"kg/hr"
+	
+	model = AirCooledCrusherModel(;
+		ηseparator    = ηseparator2,
+		T_env         = T_env2 * u"°C",
+		P_env         = 1.0u"atm",
+		ṁ_cooler      = ṁ_cooler,
+		ṁ_clinker     = ṁ_clinker2 * u"kg/hr",
+		ṁ_cru_air     = ṁ_cru_air,
+		ṁ_sep_air     = ṁ_sep_air,
+		ṁ_par_air     = ṁ_par_air,
+		ṁ_tot_air     = ṁ_tot_air,
+		power_crusher = power_crusher2 * u"kW",
+		T_in_cool     = 20.0 * u"°C",
+		T_out_cool    = T_out_cool2 * u"°C",
+		T_in_sep      = T_in_sep2 * u"°C",
+		T_out_rec     = T_out_rec2 * u"°C",
+		verbose       = true,
+		cooler        = Water()
+	)
+
+	report(model)
+	
+	fig = get_results_diagram(model)
+
+	fig
+end
+
 # ╔═╡ 2d97cef6-0808-4edb-aee4-156da381d805
 let
-	# Controlled flows.
-	ṁ_tot_air = nm3h_to_kg_h(ṁ_tot_air1) * u"kg/hr"
-	ṁ_cru_air = nm3h_to_kg_h(ṁ_cru_air1) * u"kg/hr"
-	ṁ_sep_air = nm3h_to_kg_h(ṁ_sep_air1) * u"kg/hr"
+	# XXX: weird values! Review!
+	# Flow rate at cooling system outlet
+	Q̇cool = normal_flow_rate(; T = 93.0 + TREF, ⌀ = 0.05, U = 13.6)
+
+	# Separator air inlet.
+	Q̇seps = normal_flow_rate(; T = 5.0 + TREF, ⌀ = 0.16, U = 10.0)
+
+	# Leak flow rates at balls loading and clinker charger.
+	Q̇leak = let
+		Q̇7 = normal_flow_rate(; T = 5.0 + TREF, ⌀ = 0.20, U = 1.6)
+		Q̇9 = normal_flow_rate(; T = 5.0 + TREF, ⌀ = 0.18, U = 2.5)
+		Q̇7 + Q̇9
+	end
+
+	# Contribution of leaks *through* crusher.
+	Q̇avai = q̇_tot_air1 - q̇_cru_air1 - q̇_sep_air1
+	ϕwarn = 100Q̇leak / Q̇avai
+
+	# Select how to compute leak.
+	ϕ = useϕ1 ? ϕleaks1 : ϕwarn
+	q̇_par_air1 = (q̇_tot_air1 - q̇_cru_air1 - q̇_sep_air1) * ϕ/100
 	
-	# TODO use the velocities instead, this is for test only!
-	# ṁ_par_air = 0u"kg/hr"  # (streams 7 and 9)
-	ṁ_par_air = (ṁ_tot_air - ṁ_cru_air - ṁ_sep_air) * ϕleaks1/100
-	ṁ_cooler  = nm3h_to_kg_h(800) * u"kg/hr"
+	# Controlled flows.
+	ṁ_tot_air = nm3h_to_kg_h(q̇_tot_air1) * u"kg/hr"
+	ṁ_cru_air = nm3h_to_kg_h(q̇_cru_air1) * u"kg/hr"
+	ṁ_sep_air = nm3h_to_kg_h(q̇_sep_air1) * u"kg/hr"
+
+	# Estimated flows.
+	ṁ_par_air = nm3h_to_kg_h(q̇_par_air1) * u"kg/hr"
+	ṁ_cooler  = nm3h_to_kg_h(Q̇cool) * u"kg/hr"
+
+	@warn md"""
+	| Quantity      | Measured              | Using |
+	|:--------------|:---------------------:|:-----:|
+	| Recommended ϕ | $(round(ϕwarn, digits=1))% | $(round(ϕ, digits=1))%
+	| Parasite air  | $(round(Q̇leak)) Nm³/h | $(round(q̇_par_air1))
+	| Separator air | $(round(Q̇seps)) Nm³/h | $(round(q̇_sep_air1)) Nm³/h 
+	"""
 	
 	model = AirCooledCrusherModel(;
 		ηseparator    = ηseparator1,
@@ -1223,10 +1362,11 @@ let
 		ṁ_par_air     = ṁ_par_air,
 		ṁ_tot_air     = ṁ_tot_air,
 		power_crusher = power_crusher1 * u"kW",
+		T_in_cool     = T_env1 * u"°C",
 		T_out_cool    = T_out_cool1 * u"°C",
 		T_in_sep      = T_in_sep1 * u"°C",
 		T_out_rec     = T_out_rec1 * u"°C",
-		verbose       = false
+		verbose       = true
 	)
 
 	report(model)
@@ -3972,7 +4112,9 @@ version = "3.5.0+0"
 # ╔═╡ Cell order:
 # ╟─d4189065-6aab-4920-bd21-22bc69f92ad5
 # ╟─7666c8a3-1200-4827-809c-18e383501b70
-# ╠═476cdc10-f435-4af5-af77-fe107edd3580
+# ╟─476cdc10-f435-4af5-af77-fe107edd3580
+# ╟─f0b08fbb-3226-4a43-b922-419d3d357482
+# ╟─7e3fde2d-2a78-408f-bcae-ab96ca880711
 # ╟─076e0734-a39c-4f60-ae95-fe62e8e61076
 # ╟─259238bf-7fd4-487c-999f-f864ebe472f6
 # ╟─2d97cef6-0808-4edb-aee4-156da381d805
@@ -4003,6 +4145,7 @@ version = "3.5.0+0"
 # ╟─599ab13f-0f72-41da-bd49-f8b0e92f981c
 # ╟─f1623dc0-3901-41aa-b398-15ca529c813e
 # ╟─dbfbd233-d64d-4d8e-96e6-b88e24eb2726
+# ╟─ab7c84de-c9fe-4c7e-b6de-4f2b1c108feb
 # ╟─95025c4c-73ac-4bc3-b098-f737f8a54dbb
 # ╟─2b8550b5-e6ea-45ea-adaa-89fe9c5adc12
 # ╟─dae005f2-8b15-47ae-8170-e56e43b74996

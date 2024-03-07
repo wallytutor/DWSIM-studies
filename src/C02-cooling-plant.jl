@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.32
+# v0.19.38
 
 using Markdown
 using InteractiveUtils
@@ -14,56 +14,35 @@ macro bind(def, element)
     end
 end
 
-# ╔═╡ 6491e060-cf27-11ee-14d2-bbfe55d17ee8
+# ╔═╡ 33181610-dcb2-11ee-004b-63c218681aa3
 begin
-	@info "Loading packages..."
+    @info "Loading packages..."
 
-	import PlutoUI
-	import Luxor
-	
-	using CairoMakie
-	using DocStringExtensions
-	using Polynomials
-	using Psychro
-	using Roots
-	using Statistics
-	using SteamTables
-	using Unitful
+    import PlutoUI
+    import Luxor
 
-	# Maybe use in the future!
-	# using Clapeyron
-	# using ModelingToolkit
-	# using Thermodynamics
+    using CairoMakie
+    using DocStringExtensions
+    using Polynomials
+    using Psychro
+    using Roots
+    using Statistics
+    using SteamTables
+    using Unitful
 end
 
-# ╔═╡ d4189065-6aab-4920-bd21-22bc69f92ad5
+# ╔═╡ b7a018ef-3fb7-42b7-8765-375d9437b0b7
 md"""
-# Model verification
+# Crushing process balance
 
 $(PlutoUI.TableOfContents())
 """
 
-# ╔═╡ 014e90f8-e931-4844-840a-7d76948c23a5
+# ╔═╡ f03d3f68-27fa-4255-8cb3-c6ae4ebdb303
 md"""
-## Experimental air cooling
+## Study elements
 
-To-do's:
-- Evaluate global HTC in both pipelines using an imposed final temperature so that the model can be used in simulation mode.
-
-[^1]: Reference data from Feb 15th 2024 13h50.
-"""
-
-# ╔═╡ 076e0734-a39c-4f60-ae95-fe62e8e61076
-md"""
-## Simulated air cooling
-"""
-
-# ╔═╡ 1e098167-c5fc-4d79-889c-90b171feb803
-
-
-# ╔═╡ 7666c8a3-1200-4827-809c-18e383501b70
-md"""
-## Reference water cooling
+### Reference water cooling
 
 Using current reference data[^1] regarding water cooling circuit flow rate and measured inlet and outlet temperatures, the abstracted heat
 
@@ -72,1727 +51,1768 @@ Using current reference data[^1] regarding water cooling circuit flow rate and m
 ```
 
 Using this simple analysis we identify the cooling capacity of the system when operated under water cooling. In what follows, data from previous acquisitions will be ignored since no water flow rate was actually available and estimations were purely based on *known* production values.
+"""
+
+# ╔═╡ c50940b2-bb86-4640-b333-f71874d1ab6f
+md"""
+### Experimental balances
+
+Performed under air cooling conditions [^2].
+"""
+
+# ╔═╡ 27ba243d-b2b7-4952-b490-b44a9ef6f1c4
+md"""
+### Footnotes
 
 [^1]: Reference data from Mar 05th 2024.
+[^2]: Reference data from Feb 15th 2024 13h50.
+[^T]: Tuning argument.
+[^M]: Measured argument.
+[^C]: Controls argument.
 """
 
-# ╔═╡ ed994cb4-553d-4ec5-b36d-fa30d46373c8
+# ╔═╡ 8682da47-4589-40c6-8bb0-b723abe27bbb
 md"""
-## Implementation
+## Documentation
 """
 
-# ╔═╡ b9db4ddc-cea5-405e-99ea-5b7a025fcfa4
-""" Process `CooledCrusherModel` inputs in SI units.
+# ╔═╡ d61e2dd1-eea2-45b7-9eca-4374d8e540ce
+begin
+    @info "Library implementation"
 
-Parameters are the same as the attributes. The next are optional key-words.
-Operating pressure `P_env` defaults to atmospheric pressure. If `T_in_cool` is
-not provided, it is set to `T_env`. To compute cooling efficiency it is recommended
-to provide the measured `T_out_cool` to get a precise heat exchange. Other values 
-`T_in_sep` and `T_out_rec` are used for better balance.
+    ##############################
+    # Constants
+    ##############################
 
-Attributes
-----------
-$(FIELDS)
-"""
-struct CooledCrusherInputs
-	"Environment temperature."
-	T_env::Unitful.Quantity{Float64}
+    "Ideal gas constant [J/(mol.K)]."
+    const RGAS::Float64 = 8.314_462_618_153_24
 
-	"Operating pressure."
-	P_env::Unitful.Quantity{Float64}
-	
-	"Efficiency of solids separator."
-	ηseparator::Float64
-	
-	"Power applied to crusher."
-	power_crusher::Unitful.Quantity{Float64}
-	
-	"Mass flow rate of cooling fluid."
-	ṁ_cooler::Unitful.Quantity{Float64}
-	
-	"Mass flow rate of clinker."
-	ṁ_clinker::Unitful.Quantity{Float64}
-	
-	"Mass flow rate of crushing auxiliary air."
-	ṁ_cru_air::Unitful.Quantity{Float64}
-	
-	"Mass flow rate of separator auxiliary air."
-	ṁ_sep_air::Unitful.Quantity{Float64}
-	
-	"Mass flow rate of parasite air in system."
-	ṁ_par_air::Unitful.Quantity{Float64}
-	
-	"Mass flow rate of air at system exit."
-	ṁ_tot_air::Unitful.Quantity{Float64}
-	
-	"Inlet temperature of cooling fluid."
-	T_in_cool::Unitful.Quantity{Float64}
-	
-	"Outlet temperature of cooling fluid (forced mode)."
-	T_out_cool::Union{Nothing, Unitful.Quantity{Float64}}
-	
-	"Inlet temperature of product in separator (forced mode)."
-	T_in_sep::Union{Nothing, Unitful.Quantity{Float64}}
-	
-	"Outlet temperature of product in recirculation (forced mode)."
-	T_out_rec::Union{Nothing, Unitful.Quantity{Float64}}
+    "Reference atmospheric pressure [Pa]."
+    const PREF::Float64 = 101325.0
 
-	function CooledCrusherInputs(; T_env, ηseparator, power_crusher, ṁ_cooler,
-			ṁ_clinker, ṁ_cru_air, ṁ_sep_air, ṁ_par_air, ṁ_tot_air, kwargs...)
+    "Normal atmospheric temperature [K]."
+    const TREF::Float64 = 273.15
 
-		kw = Dict(kwargs)
+    "Air mean molecular mass [kg/mol]."
+    const M_AIR::Float64 = 0.0289647
 
-		kelvin_or_na(v) = isnothing(v) ? v : uconvert(u"K", v)
-		
-		return new(
-			uconvert(u"K", T_env),
-			uconvert(u"Pa", get(kw, :P_env, 1.0u"atm")),
-			0.01ηseparator,
-			uconvert(u"W", power_crusher),
-			uconvert(u"kg/s", ṁ_cooler),
-			uconvert(u"kg/s", ṁ_clinker),
-			uconvert(u"kg/s", ṁ_cru_air),
-			uconvert(u"kg/s", ṁ_sep_air),
-			uconvert(u"kg/s", ṁ_par_air),
-			uconvert(u"kg/s", ṁ_tot_air),
-			uconvert(u"K", get(kw, :T_in_cool, T_env)),
-			kelvin_or_na(get(kw, :T_out_cool, nothing)),
-			kelvin_or_na(get(kw, :T_in_sep, nothing)),
-			kelvin_or_na(get(kw, :T_out_rec, nothing))
-		)
-	end
+    "Normal state concentration [mol/m³]. "
+    const C_AIR::Float64 = PREF / (RGAS * TREF)
+
+    "Coefficients for air enthalpy polynomial [J/kg]."
+    const H_AIR::Vector{Float64} = [
+        -2.6257123774377e+05,
+         9.8274248481342e+02,
+         4.9125599795629e-02
+    ]
+
+    ##############################
+    # Abstract types
+    ##############################
+
+    abstract type AbstractMaterial end
+    abstract type AbstractLiquidMaterial <: AbstractMaterial end
+    abstract type AbstractSolidMaterial <: AbstractMaterial end
+    abstract type AbstractGasMaterial <: AbstractMaterial end
+
+    issolid(m::AbstractMaterial)  = m isa AbstractSolidMaterial
+    isliquid(m::AbstractMaterial) = m isa AbstractLiquidMaterial
+    isgas(m::AbstractMaterial)    = m isa AbstractGasMaterial
+
+    ##############################
+    # Concrete types (materials)
+    ##############################
+
+    "Liquid water material."
+    struct Water <: AbstractLiquidMaterial
+    end
+
+    "Solid clinker material."
+    struct Clinker <: AbstractSolidMaterial
+        ρ::Float64
+        h::Polynomial
+
+        function Clinker(; ρ = 900.0, h = [0, 850.0])
+            return new(ρ, Polynomial(h, :T))
+        end
+    end
+
+    "Gas air material."
+    struct Air <: AbstractGasMaterial
+        M̄::Float64
+        h::Polynomial
+
+        function Air(; h = H_AIR)
+            return new(M_AIR, Polynomial(h, :T))
+        end
+    end
+
+    ##############################
+    # Concrete types (simulation)
+    ##############################
+
+    "Array of materials to include in a stream."
+    struct StreamPipeline
+        materials::Vector{AbstractMaterial}
+    end
+
+    """ Represents a material stream.
+
+    Attributes
+    ----------
+    $(FIELDS)
+    """
+    struct MaterialStream
+        "Material mass flow rate [kg/s]."
+        ṁ::Float64
+
+        "Stream temperature [K]."
+        T::Float64
+
+        "Stream pressure [Pa]."
+        P::Float64
+
+        "Components mass fractions [-]."
+        Y::Vector{Float64}
+
+        "Materials pipeline associated to `Y`."
+        pipeline::StreamPipeline
+    end
+
+    """ Represents an energy stream.
+
+    Attributes
+    ----------
+    $(FIELDS)
+    """
+    struct EnergyStream
+        "Energy flow provided by stream [W]."
+        ḣ::Float64
+    end
+
+    """ Represents a pipeline with heat transfer.
+
+    Models
+    ------
+    1. `:TARGET_EXIT_TEMP` evaluates the heat transfer lost to environment \
+      provided a target final stream temperature given by keyword argument \
+      `temp_out`. Product temperature is updated through an `EnergyStream` \
+      built with energy exchange computed through `exchanged_heat`, so that \
+      numerical value can be slightly different from target value.
+    1. `:USING_GLOBAL_HTC` makes use of a global heat transfer coefficient \
+      to evaluate heat flux across the pipe.
+
+    To-do's
+    -------
+    - Implement heat transfer losses through a convective heat transfer
+      coefficient (HTC) computed from a suitable Nusselt number, for use
+      of pipeline in *simulation* mode.
+
+    Attributes
+    ----------
+    $(FIELDS)
+    """
+    struct TransportPipeline
+        "The output material stream at the end of pipeline."
+        product::MaterialStream
+
+        "The heat exchanged in pipeline [W]."
+        power::EnergyStream
+
+        function TransportPipeline(;
+                product,
+                model,
+                verbose = true,
+                kwargs...
+            )
+            ##########
+            # INITIAL
+            ##########
+
+            Δq = 0.0
+            power = EnergyStream(Δq)
+
+            ##########
+            # MODEL
+            ##########
+
+            if model == :TARGET_EXIT_TEMP
+                # Compute enthalpy change with environment.
+                Δq = exchanged_heat(product, kwargs[:temp_out])
+
+                # Stream of energy to correct system temperature.
+                power = EnergyStream(Δq)
+
+                # Correct energy in both streams.
+                product += power
+            end
+
+            if model == :USING_GLOBAL_HTC
+                # Compute enthalpy change with environment.
+                T∞ = kwargs[:temp_env]
+                T₂ = kwargs[:temp_out]
+                U = kwargs[:glob_htc]
+                Δq = U * (T∞ - 0.5 * (T₂ + product.T))
+
+                # Stream of energy to correct system temperature.
+                power = EnergyStream(Δq)
+
+                # Correct energy in both streams.
+                product += power
+            end
+
+            ##########
+            # POST
+            ##########
+
+            verbose && begin
+                rounder(v) = round(v; digits = 1)
+                p = rounder(ustrip(uconvert(u"kW", Δq * u"W")))
+                T = rounder(ustrip(uconvert(u"°C", product.T * u"K")))
+
+                @info """
+                TransportPipeline with model $(model)
+
+                Heat loss to environment..........: $(p) kW
+                Product stream final temperature..: $(T) °C
+                """
+            end
+
+            ##########
+            # NEW
+            ##########
+
+            return new(product, power)
+        end
+    end
+
+
+    "Manage use of `TransportPipeline` with different models."
+    function transport_pipe(product, temp_out, temp_env, glob_htc)
+        verbose = false
+
+        function target_pipeline()
+            return TransportPipeline(; model = :TARGET_EXIT_TEMP,
+                product, temp_out, verbose)
+        end
+
+        function simul_pipeline()
+            temp_out = isnothing(temp_out) ? product.T : temp_out
+
+            pipe = TransportPipeline(; model = :USING_GLOBAL_HTC,
+                product, temp_out, glob_htc, temp_env, verbose)
+
+            temp_out = pipe.product.T
+            return pipe, temp_out
+        end
+
+        pipe = if isnothing(glob_htc)
+            target_pipeline()
+        else
+            pipe, temp_out = simul_pipeline()
+            pipe
+        end
+        return pipe, temp_out
+    end
+
+    """ Represents a solids separator with efficiency η.
+
+    To-do's
+    -------
+    - Add inverse model to automatically tune efficiency η.
+
+    Attributes
+    ----------
+    $(FIELDS)
+    """
+    struct SolidsSeparator
+        "Solids separation efficiency [-]."
+        η::Float64
+
+        "The stream to be separated into solids and others."
+        source::MaterialStream
+
+        "The output solids stream."
+        solids::MaterialStream
+
+        "The output remaining stream."
+        others::MaterialStream
+
+        function SolidsSeparator(source; η = 1.0)
+            # Retrieve elements kept constant.
+            T, P, pipe = source.T, source.P, source.pipeline
+
+            # Retrieve array of solids mass fractions, zeroeing other materials.
+            Ys0 = map((m, Y)->issolid(m) ? Y : 0, pipe.materials, source.Y)
+
+            # The mass flow of split solids stream corresponds to the mass flow
+            # of solids multiplied by the separation efficiency of separator.
+            m_sol = source.ṁ * sum(Ys0) * η
+
+            # The mass flow of secondary stream (recirculating solids and other
+            # phases) is the total nass flow minus separated solids.
+            m_oth = source.ṁ - m_sol
+
+            # Mass flow rates of each species in original flow.
+            mk0 = source.ṁ * source.Y
+
+            # For solids we multiply their total flow rate by the renormalized
+            # mass fractions of individual species, balance for other stream.
+            mk1 = m_sol * Ys0 ./ sum(Ys0)
+            mk2 = mk0 .- mk1
+
+            # Mass fractions are recomputed for each stream.
+            Ys1 = mk1 / m_sol
+            Ys2 = mk2 / m_oth
+
+            # Create new streamsp
+            solids = MaterialStream(m_sol, T, P, Ys1, pipe)
+            others = MaterialStream(m_oth, T, P, Ys2, pipe)
+
+            return new(η, source, solids, others)
+        end
+    end
+
+    """ Represents a crushing device with cooling system.
+
+    Models
+    ------
+    1. `:TARGET_COOLANT_TEMP` evaluates the heat transfer lost to coolant \
+      provided a target final stream temperature given by keyword argument \
+      `temp_out`. Product temperature is updated through an `EnergyStream` \
+      built with energy exchange computed through `exchanged_heat`, so that \
+      numerical value can be slightly different from target value.
+
+    To-do's
+    -------
+    - Implement heat exchange coefficient so that the model can be used in *simulation*.
+
+    Attributes
+    ----------
+    $(FIELDS)
+    """
+    struct CooledCrushingMill
+        "The input meal applied to crushing process."
+        rawmeal::MaterialStream
+
+        "The output material stream at the end of product pipeline."
+        product::MaterialStream
+
+        "The output material stream at the end of cooling pipeline."
+        coolant::MaterialStream
+
+        "The power applied to the crushing process [W]"
+        power::EnergyStream
+
+        "The heat exchanged in between product and cooling pipelines [W]."
+        loss::EnergyStream
+
+        "Global heat transfer coefficient [W/K]."
+        globalhtc::Float64
+
+        function CooledCrushingMill(;
+                product,
+                coolant,
+                power,
+                model,
+                verbose = true,
+                kwargs...
+            )
+            ##########
+            # INITIAL
+            ##########
+
+            Δq = 0.0
+            loss = EnergyStream(Δq)
+            meal = product
+
+            ##########
+            # MODEL
+            ##########
+
+            if model == :TARGET_COOLANT_TEMP
+                # Compute enthalpy change in cooling stream.
+                Δq = exchanged_heat(coolant, kwargs[:temp_out])
+
+                # Stream of energy to correct system temperature.
+                loss = EnergyStream(Δq)
+
+                # Correct energy in both streams.
+                product += power - loss
+                coolant += loss
+            end
+
+            ##########
+            # POST
+            ##########
+
+            verbose && begin
+                rounder(v) = round(v; digits = 1)
+                Q = rounder(ustrip(uconvert(u"kW", power.ḣ * u"W")))
+                p = rounder(ustrip(uconvert(u"kW", Δq * u"W")))
+                T = rounder(ustrip(uconvert(u"°C", product.T * u"K")))
+
+                @info """
+                CooledCrushingMill with model $(model)
+
+                Power applied to product stream...: $(Q) kW
+                Heat extracted by cooling system..: $(p) kW
+                Product stream final temperature..: $(T) °C
+                """
+            end
+
+            ##########
+            # NEW
+            ##########
+
+            globalhtc = -1.0
+
+            return new(meal, product, coolant, power, loss, globalhtc)
+        end
+    end
+
+    ##############################
+    # System model
+    ##############################
+
+    """ Process `CooledCrusherModel` inputs in SI units.
+
+    Parameters are the same as the attributes. The next are optional key-words.
+    Operating pressure `P_env` defaults to atmospheric pressure. If `T_in_cool`
+    is not provided, it is set to `T_env`. To compute cooling efficiency it is
+    recommended to provide the measured `T_out_cool` to get a precise balance.
+    Other values `T_in_sep` and `T_out_rec` are used for better balance.
+
+    Attributes
+    ----------
+    $(FIELDS)
+    """
+    struct CooledCrusherInputs
+        "Environment temperature."
+        T_env::Unitful.Quantity{Float64}
+
+        "Operating pressure."
+        P_env::Unitful.Quantity{Float64}
+
+        "Efficiency of solids separator."
+        ηseparator::Float64
+
+        "Power applied to crusher."
+        power_crusher::Unitful.Quantity{Float64}
+
+        "Mass flow rate of cooling fluid."
+        ṁ_cooler::Unitful.Quantity{Float64}
+
+        "Mass flow rate of clinker."
+        ṁ_clinker::Unitful.Quantity{Float64}
+
+        "Mass flow rate of crushing auxiliary air."
+        ṁ_cru_air::Unitful.Quantity{Float64}
+
+        "Mass flow rate of separator auxiliary air."
+        ṁ_sep_air::Unitful.Quantity{Float64}
+
+        "Mass flow rate of parasite air in system."
+        ṁ_par_air::Unitful.Quantity{Float64}
+
+        "Mass flow rate of air at system exit."
+        ṁ_tot_air::Unitful.Quantity{Float64}
+
+        "Inlet temperature of cooling fluid."
+        T_in_cool::Unitful.Quantity{Float64}
+
+        "Outlet temperature of cooling fluid (forced mode)."
+        T_out_cool::Union{Nothing, Unitful.Quantity{Float64}}
+
+        "Inlet temperature of product in separator (forced mode)."
+        T_in_sep::Union{Nothing, Unitful.Quantity{Float64}}
+
+        "Outlet temperature of product in recirculation (forced mode)."
+        T_out_rec::Union{Nothing, Unitful.Quantity{Float64}}
+
+        function CooledCrusherInputs(; T_env, ηseparator, power_crusher, ṁ_cooler,
+                ṁ_clinker, ṁ_cru_air, ṁ_sep_air, ṁ_par_air, ṁ_tot_air, kwargs...)
+
+            kw = Dict(kwargs)
+
+            kelvin_or_na(v) = isnothing(v) ? v : uconvert(u"K", v)
+
+            return new(
+                uconvert(u"K", T_env),
+                uconvert(u"Pa", get(kw, :P_env, 1.0u"atm")),
+                0.01ηseparator,
+                uconvert(u"W", power_crusher),
+                uconvert(u"kg/s", ṁ_cooler),
+                uconvert(u"kg/s", ṁ_clinker),
+                uconvert(u"kg/s", ṁ_cru_air),
+                uconvert(u"kg/s", ṁ_sep_air),
+                uconvert(u"kg/s", ṁ_par_air),
+                uconvert(u"kg/s", ṁ_tot_air),
+                uconvert(u"K", get(kw, :T_in_cool, T_env)),
+                kelvin_or_na(get(kw, :T_out_cool, nothing)),
+                kelvin_or_na(get(kw, :T_in_sep, nothing)),
+                kelvin_or_na(get(kw, :T_out_rec, nothing))
+            )
+        end
+    end
+
+    """ Solver parameters for `CooledCrusherModel`.
+
+    All attributes are optional and can be provided through key-words.
+
+    Attributes
+    ----------
+    $(FIELDS)
+    """
+    struct CooledCrusherSolverPars
+        "Maximum number of solver iterations. Default is `100`."
+        max_iter::Int64
+
+        "Absolute tolerance for temperature. Default is `1.0e-10`."
+        T_tol::Float64
+
+        "Absolute tolerance for mass flow. Default is `1.0e-10`."
+        ṁ_tol::Float64
+
+        "Verbosity control flag. Default is `true`."
+        verbose::Bool
+
+        function CooledCrusherSolverPars(; kwargs...)
+            kw = Dict(kwargs)
+            return new(
+                get(kw, :max_iter, 100),
+                get(kw, :T_tol,    1.0e-10),
+                get(kw, :ṁ_tol,    1.0e-10),
+                get(kw, :verbose,  true)
+            )
+        end
+    end
+
+    """ Creates unit operations for `CooledCrusherModel`.
+
+    Specific key-word arguments of this structure include the materials specification
+    with the following *pure fluid* defaults. If the user needs specific material
+    properties, the material must implement all the method interfaces provided for the
+    default materials below.
+
+    - `cooler  = (Air(),     [1.0])`
+    - `clinker = (Clinker(), [1.0, 0.0])`
+    - `air     = (Air(),     [0.0, 1.0])`
+
+    Attributes
+    ----------
+    $(FIELDS)
+    """
+    struct CooledCrusherUnits
+        "Cooling fluid materials pipeline."
+        pipe_cool::StreamPipeline
+
+        "Production fluid materials pipeline."
+        pipe_prod::StreamPipeline
+
+        "Energy stream applied to crushing mill."
+        milling_power::EnergyStream
+
+        "Crusher cooling stream."
+        cooling_stream::MaterialStream
+
+        "Clinker main feed stream."
+        clinker_stream::MaterialStream
+
+        "Auxiliary crusher air stream."
+        crusher_air_stream::MaterialStream
+
+        "Auxiliary separator air stream."
+        separator_air_stream::MaterialStream
+
+        "Parasite air stream mixed with clinker."
+        parasite_air_stream::MaterialStream
+
+        "Product recirculation stream."
+        recirc_stream::MaterialStream
+
+        "Balance air as complement to parasite air."
+        balance_air_stream::MaterialStream
+
+        "Premix of clinker and parasite air."
+        meal_stream::MaterialStream
+
+        "Crusher operation model."
+        crusher::CooledCrushingMill
+
+        "Separator operation model."
+        separator::SolidsSeparator
+
+        "Cyclone operation model."
+        cyclone::SolidsSeparator
+
+        "Pipeline between crusher and separator."
+        transport_sep::TransportPipeline
+
+        "Product recirculation pipeline."
+        transport_rec::TransportPipeline
+
+        function CooledCrusherUnits(inputs, solver; kwargs...)
+            kw = Dict(kwargs)
+
+            # Strip physical units.
+            T_env         = ustrip(inputs.T_env)
+            P_env         = ustrip(inputs.P_env)
+            T_in_cool     = ustrip(inputs.T_in_cool)
+            power_crusher = ustrip(inputs.power_crusher)
+            ṁ_cooler      = ustrip(inputs.ṁ_cooler)
+            ṁ_clinker     = ustrip(inputs.ṁ_clinker)
+            ṁ_cru_air     = ustrip(inputs.ṁ_cru_air)
+            ṁ_sep_air     = ustrip(inputs.ṁ_sep_air)
+            ṁ_par_air     = ustrip(inputs.ṁ_par_air)
+            ṁ_tot_air     = ustrip(inputs.ṁ_tot_air)
+
+            val_or_na(qty) = isnothing(qty) ? qty : ustrip(qty)
+
+            T_out_cool    = val_or_na(inputs.T_out_cool)
+            T_in_sep      = val_or_na(inputs.T_in_sep)
+            T_out_rec     = val_or_na(inputs.T_out_rec)
+
+            # Get material streams.
+            cooler, Y_cool     = get(kw, :cooler,  (Air(),     [1.0]))
+            clinker, Y_clinker = get(kw, :clinker, (Clinker(), [1.0, 0.0]))
+            air, Y_air         = get(kw, :air,     (Air(),     [0.0, 1.0]))
+
+            pipe_cool = StreamPipeline([cooler])
+            pipe_prod = StreamPipeline([clinker, air])
+
+            # Aliases
+            T, P = T_env, P_env
+
+            # Applied power at mill.
+            milling_power = EnergyStream(power_crusher)
+
+            # Cooling material stream.
+            cooling_stream = MaterialStream(
+                ṁ_cooler, T_in_cool, P_env, Y_cool, pipe_cool)
+
+            # Clinker material stream.
+            clinker_stream = MaterialStream(
+                ṁ_clinker, T_env, P_env, Y_clinker, pipe_prod)
+
+            # Milling air stream.
+            crusher_air_stream = MaterialStream(
+                ṁ_cru_air, T_env, P_env, Y_air, pipe_prod)
+
+            # Separator air stream.
+            separator_air_stream = MaterialStream(
+                ṁ_sep_air, T_env, P_env, Y_air, pipe_prod)
+
+            # Air leaks in mill.
+            parasite_air_stream = MaterialStream(
+                ṁ_par_air, T_env, P_env, Y_air, pipe_prod)
+
+            # Dummy recirculation for initialization.
+            recirc_stream = MaterialStream(
+                0.0, T_env, P_env, Y_clinker, pipe_prod)
+
+            # XXX Experimental code.
+            htc_sep = get(kw, :htc_pipe_sep, nothing)
+            htc_rec = get(kw, :htc_pipe_rec, nothing)
+
+            # Premix meal that is not iterated upon.
+            meal_stream = clinker_stream
+            meal_stream += crusher_air_stream
+            meal_stream += parasite_air_stream
+
+            # Run iterative procedure till steady-state.
+            itercount = 0
+            ṁnow = 1.0e+09
+            Tnow = 1.0e+09
+
+            crusher = nothing
+            separator = nothing
+            transport_sep = nothing
+            transport_rec = nothing
+
+            while itercount <= solver.max_iter
+                # Add crushing energy and cool down system.
+                crusher = CooledCrushingMill(;
+                    product  = meal_stream + recirc_stream,
+                    coolant  = cooling_stream,
+                    power    = milling_power,
+                    model    = :TARGET_COOLANT_TEMP,
+                    verbose  = false,
+                    temp_out = T_out_cool
+                )
+
+                # Loose some heat in vertical pipeline.
+                rets = transport_pipe(crusher.product, T_in_sep, T_env, htc_sep)
+                transport_sep, T_in_sep = rets
+
+                # Add air stream to crushed product.
+                toseparator2 = transport_sep + separator_air_stream
+
+                # Recover streams from separator
+                separator = SolidsSeparator(toseparator2; η = inputs.ηseparator)
+
+                # Loose some heat in recirculation pipeline.
+                rets = transport_pipe(separator.solids, T_out_rec, T_env, htc_rec)
+                transport_rec, T_out_rec = rets
+
+                # Compute property changes.
+                ΔT = abs(Tnow - transport_rec.product.T)
+                Δṁ = abs(ṁnow - transport_rec.product.ṁ)
+
+                # Check convergence.
+                if ΔT < solver.T_tol && Δṁ < solver.ṁ_tol
+                    solver.verbose && begin
+                        @info "CooledCrusherModel: $(itercount) iterations"
+                    end
+                    break
+                end
+
+                # Prepare next iteration.
+                recirc_stream = transport_rec.product
+                Tnow = recirc_stream.T
+                ṁnow = recirc_stream.ṁ
+                itercount += 1
+            end
+
+            cyclone = SolidsSeparator(separator.others; η = 1.0)
+
+            # Total air leaving the system (after cyclone)
+            balance_air_stream = MaterialStream(
+                ṁ_tot_air - cyclone.others.ṁ, T, P, Y_air, pipe_prod)
+
+            return new(
+                pipe_cool,
+                pipe_prod,
+                milling_power,
+                cooling_stream,
+                clinker_stream,
+                crusher_air_stream,
+                separator_air_stream,
+                parasite_air_stream,
+                recirc_stream,
+                balance_air_stream,
+                meal_stream,
+                crusher,
+                separator,
+                cyclone,
+                transport_sep,
+                transport_rec
+            )
+        end
+    end
+
+    """ Implements an air cooled crusher circuit.
+
+    Constructor parameters are described in `CooledCrusherInputs` together with
+    additional key-word arguments, which are extended in `CooledCrusherSolverPars`
+    and `CooledCrusherUnits`.
+
+    Attributes
+    ----------
+    $(FIELDS)
+    """
+    struct CooledCrusherModel
+        "Processed model inputs with units."
+        inputs::CooledCrusherInputs
+
+        "Solver operations to manage operation units."
+        solver::CooledCrusherSolverPars
+
+        "*De facto* process integration model."
+        unitops::CooledCrusherUnits
+
+        function CooledCrusherModel(; T_env, ṁ_cooler, ṁ_clinker, ṁ_cru_air,
+            ṁ_sep_air, ṁ_par_air, ṁ_tot_air, power_crusher, ηseparator, kwargs...)
+
+            inputs = CooledCrusherInputs(; T_env, ηseparator, power_crusher, ṁ_cooler,
+                ṁ_clinker, ṁ_cru_air, ṁ_sep_air, ṁ_par_air, ṁ_tot_air, kwargs...)
+
+            solver = CooledCrusherSolverPars(; kwargs...)
+
+            unitops = CooledCrusherUnits(inputs, solver; kwargs...)
+
+            return new(inputs, solver, unitops)
+        end
+    end
+
+    ##############################
+    # density()
+    ##############################
+
+    density(mat::AbstractMaterial, T, P) = error("Not implemented")
+
+    density(mat::Clinker, T, P) = mat.ρ
+
+    density(mat::Water, T, P) = 1.0 / SpecificV(P, T)
+
+    density(mat::Air, T, P) = (P * mat.M̄) / (RGAS * T)
+
+    @doc "Evaluates the density of material [kg/m³]." density
+
+    ##############################
+    # enthalpy()
+    ##############################
+
+    enthalpy(mat::AbstractMaterial, pars...) = error("Not implemented")
+
+    enthalpy(mat::Clinker, T, P) = mat.h(T)
+
+    enthalpy(mat::Water, T, P) = 4182.0T
+
+    enthalpy(mat::Air, T, P) = mat.h(T)
+
+    function enthalpy(pipe::StreamPipeline, T, P, Y)
+        return sum(Y .* enthalpy.(pipe.materials, T, P))
+    end
+
+    function enthalpy(stream::MaterialStream, T, P)
+        return enthalpy(stream.pipeline, T, P, stream.Y)
+    end
+
+    function enthalpy(stream::MaterialStream; kwargs...)
+        kwargs_dict = Dict(kwargs)
+        T = get(kwargs_dict, :T, stream.T)
+        P = get(kwargs_dict, :P, stream.P)
+        Y = get(kwargs_dict, :Y, stream.Y)
+        return enthalpy(stream.pipeline, T, P, Y)
+    end
+
+    @doc "Evaluates the enthalpy of material [J/kg]." enthalpy
+
+    ##############################
+    # enthalpyflowrate()
+    ##############################
+
+    enthalpyflowrate(s::MaterialStream) = s.ṁ * enthalpy(s)
+
+    enthalpyflowrate(e::EnergyStream) = e.ḣ
+
+    @doc "Enthalpy flow rate of given stream [W]." enthalpyflowrate
+
+    ##############################
+    # General
+    ##############################
+
+    "Heat exchanged with stream to match outlet temperature."
+    function exchanged_heat(s::MaterialStream, T_out)
+        # The rate of heat leaving the system [kg/s * J/kg = W].
+        ḣ_out = s.ṁ * enthalpy(s; T = T_out)
+
+        # The change of rate across the system [W].
+        return ḣ_out - enthalpyflowrate(s)
+    end
+
+    "Compute normal flow rate based on measurements"
+    function normal_flow_rate(; T, ⌀, U)
+        return 3600 * (TREF / T) * U * π * ⌀^2 / 4
+    end
+
+    "Convert [Nm³/h] to [kg/h]."
+    nm3h_to_kg_h(q) = C_AIR * M_AIR  * q
+
+    "Convert [kg/h] to [Nm³/h]."
+    kg_h_to_nm3h(m) = m / (C_AIR * M_AIR)
+
+    ##############################
+    # Overloads from Base
+    ##############################
+
+    function Base.:+(s₁::MaterialStream, s₂::MaterialStream;
+                     verbose = false, message = "")
+        # Can only mix streams using same material pipeline.
+        @assert s₁.pipeline == s₂.pipeline
+
+        # Retrieve flow rates.
+        ṁ₁ = s₁.ṁ
+        ṁ₂ = s₂.ṁ
+
+        # Total mass flow is the sum of stream flows.
+        ṁ = ṁ₁ + ṁ₂
+
+        # Mass weighted average pressure.
+        P = (ṁ₁ * s₁.P + ṁ₂ * s₂.P) / ṁ
+
+        # Compute species total mass flow and divide by total flow
+        # rate to get resulting stream mass fractions.
+        Y = (ṁ₁ * s₁.Y + ṁ₂ * s₂.Y) / ṁ
+
+        # Energy flow is the sum of individual stream flows.
+        ĥ = enthalpyflowrate(s₁) + enthalpyflowrate(s₂)
+
+        function f(t)
+            # Create a stream with other conditions fixed.
+            sn = MaterialStream(ṁ, t, P, Y, s₁.pipeline)
+
+            # Check if with temperature `t` it matches `ĥ`.
+            return enthalpyflowrate(sn) - ĥ
+        end
+
+        # Find new temperature starting from the top.
+        T = find_zero(f, max(s₁.T, s₂.T))
+
+        # Create resulting stream.
+        sₒ = MaterialStream(ṁ, T, P, Y, s₁.pipeline)
+
+        verbose && begin
+            rounder(v) = round(v; digits = 1)
+            T1 = rounder(ustrip(uconvert(u"°C", s₁.T * u"K")))
+            T2 = rounder(ustrip(uconvert(u"°C", s₂.T * u"K")))
+            To = rounder(ustrip(uconvert(u"°C", sₒ.T * u"K")))
+
+            # TODO make more informative!
+            @info """
+            MaterialStream addition (+) $(message)
+
+            First stream temperature..........: $(T1) °C
+            Second stream temperature.........: $(T2) °C
+            Resulting stream temperature......: $(To) °C
+            """
+        end
+
+        return sₒ
+    end
+
+    function Base.:+(s::MaterialStream, e::EnergyStream)
+        # Energy flow is the sum of individual stream flows.
+        ĥ = enthalpyflowrate(s) + enthalpyflowrate(e)
+
+        function f(t)
+            # Create a stream with other conditions fixed.
+            sn = MaterialStream(s.ṁ, t, s.P, s.Y, s.pipeline)
+
+            # Check if with temperature `t` it matches `ĥ`.
+            return enthalpyflowrate(sn) - ĥ
+        end
+
+        # # Find new temperature starting from current temperature.
+        T = find_zero(f, TREF)
+
+        # Create resulting stream.
+        return MaterialStream(s.ṁ, T, s.P, s.Y, s.pipeline)
+    end
+
+    function Base.:-(e₁::EnergyStream, e₂::EnergyStream)
+        return EnergyStream(e₁.ḣ - e₂.ḣ)
+    end
+
+    function Base.:+(e₁::EnergyStream, e₂::EnergyStream)
+        return EnergyStream(e₁.ḣ + e₂.ḣ)
+    end
+
+    function Base.:+(p::TransportPipeline, s::MaterialStream)
+        return p.product + s
+    end
+end;
+
+# ╔═╡ 4f04674f-ec72-41ef-8395-8fa7bd249a94
+let
+    M = [
+        21.2   1.2   13.0  56.0;
+        18.8   1.1   10.0  55.0;
+        19.6   1.4   17.0  56.0;
+        18.6   1.5   10.0  55.0;
+        19.0   1.2   11.0  53.0;
+        20.0   1.4   19.0  55.0;
+        20.0   1.4   18.0  55.0;
+        20.0   1.4   17.0  54.0;
+    ]
+
+    h(T) = SpecificH(PREF * u"Pa", T)
+    ρ(T) = density(Water(), T, PREF * u"Pa")
+
+    # h(T) =  4182.0u"J/(kg*K)" * T
+    # ρ(T) = 996.0u"kg/m^3"
+
+    V̇ = uconvert.(u"m^3/s", M[:, 2] * u"m^3/hr")
+    T1 = uconvert.(u"K", M[:, 1] * u"°C")
+    T2 = uconvert.(u"K", M[:, 4] * u"°C")
+
+    ρw = map(ρ, T1)
+    ΔH = map(h, T2) - map(h, T1)
+
+    Q̇ = mean(uconvert.(u"kW", @. ρw * V̇ * ΔH))
+    V̇ = mean(M[:, 2])
+
+    @info """
+    Reference cooling power.... $(round(ustrip(Q̇); digits = 1)) kW
+    Mean water flow rate....... $(round(V̇; digits = 1)) m³/h
+    """
 end
 
-# ╔═╡ ff0eefe3-9285-47ab-9945-6a11bc07275c
-""" Solver parameters for `CooledCrusherModel`.
+# ╔═╡ 8e57eefe-2115-40d9-bb6e-eadadbdbe762
+begin
+    @info "Reference measured data"
 
-All attributes are optional and can be provided through key-words.
+    const ϕ             = 31.5
+    const ηseparator    = 47.65
 
-Attributes
-----------
+    const T_env         = 5.0
+    const T_out_cool    = 93.0
+    const T_in_sep      = 73.0
+    const T_out_rec     = 39.0
 
-$(FIELDS)
-"""
-struct CooledCrusherSolverPars
-	"Maximum number of solver iterations. Default is `100`."
-	max_iter::Int64
+    const q̇_tot_air     = 3600.0
+    const q̇_cru_air     = 1881
+    const q̇_sep_air     = 431.0
 
-	"Absolute tolerance for temperature. Default is `1.0e-10`."
-	T_tol::Float64
+    const ṁ_clinker     = 820.0
+    const power_crusher = 107.0
 
-	"Absolute tolerance for mass flow. Default is `1.0e-10`."
-	ṁ_tol::Float64
+    # Flow rate at cooling system outlet
+    const Q̇cool = normal_flow_rate(; T = T_out_cool + TREF, ⌀ = 0.05, U = 13.6)
 
-	"Verbosity control flag. Default is `true`."
-	verbose::Bool
+    # Separator air inlet.
+    const Q̇seps = normal_flow_rate(; T = T_env + TREF, ⌀ = 0.16, U = 10.0)
 
-	function CooledCrusherSolverPars(; kwargs...)
-		kw = Dict(kwargs)
-		return new(
-			get(kw, :max_iter, 100),
-			get(kw, :T_tol,    1.0e-10),
-			get(kw, :ṁ_tol,    1.0e-10),
-			get(kw, :verbose,  true)
-		)
-	end
+    # Leak flow rates at balls loading and clinker charger.
+    const Q̇leak = let
+        Q̇7 = normal_flow_rate(; T = T_env + TREF, ⌀ = 0.20, U = 1.6)
+        Q̇9 = normal_flow_rate(; T = T_env + TREF, ⌀ = 0.18, U = 2.5)
+        Q̇7 + Q̇9
+    end
+end;
+
+# ╔═╡ 3aec0b9b-5aa2-4f47-baf3-ac0593c5fe6d
+begin
+    @info "Postprocessing implementation"
+
+    "Default slider with displayed value."
+    slider(rng, def) = PlutoUI.Slider(rng, default=def, show_value=true)
+
+    "Standardized report for `CooledCrusherModel`."
+    function report(model::CooledCrusherModel; show_tree = true)
+        fmt(x) = round(x; digits = 1)
+
+        cooling = model.unitops.cooling_stream
+        crusher = model.unitops.crusher
+        separator = model.unitops.separator
+        trans_rec = model.unitops.transport_rec
+        # T_out_rec = model.inputs.T_out_rec
+
+        @info """
+        CooledCrusherModel
+
+        Cooling circuit:
+        - inlet temperature...... $(fmt(cooling.T - TREF)) °C
+        - outlet temperature..... $(fmt(crusher.coolant.T - TREF)) °C
+        - energy intake.......... $(fmt(crusher.loss.ḣ / 1000)) kW
+
+        Crusher circuit:
+        - inlet temperature...... $(fmt(crusher.rawmeal.T - TREF)) °C
+        - outlet temperature..... $(fmt(crusher.product.T - TREF)) °C
+
+        Recirculation circuit:
+        - flow rate.............. $(fmt(3600separator.solids.ṁ)) kg/h
+        - initial temperature.... $(fmt(separator.solids.T - TREF)) °C
+        - final temperature...... $(fmt(trans_rec.product.T - TREF)) °C
+
+        """
+
+        if show_tree
+            @info model.inputs
+            @info model.unitops
+        end
+    end
+
+    "Graphical display of crusher balance results."
+    function get_results_diagram(model; kwargs...)
+        function inlet_main(p0, p1, p2, c)
+            Luxor.sethue(c)
+            Luxor.arrow(p0, p1)
+            Luxor.move(p0)
+            Luxor.line(p1)
+            Luxor.line(p2)
+            Luxor.strokepath()
+        end
+
+        kwargs_dict = Dict(kwargs)
+
+        # For @svg
+        height = get(kwargs_dict, :height, 300)
+        width  = get(kwargs_dict, :width, 700)
+        saveas = get(kwargs_dict, :saveas, "crusher.svg")
+
+        # Display control
+        showcrusher   = get(kwargs_dict, :showcrusher, true)
+        showseparator = get(kwargs_dict, :showseparator, true)
+
+        Luxor.@svg let
+            colorbkg = "#EEEEEE"
+            colorair = "#0055FF"
+            colorsol = "#00AA44"
+            colormix = "#FF552F"
+            colorrfr = "#0099FF"
+
+            Luxor.background(colorbkg)
+
+            let # Leak air (7+9).
+                p0 = Luxor.Point(-265, -50)
+                p1 = Luxor.Point(-250, -50)
+                p2 = Luxor.Point(-200, 0)
+                inlet_main(p0, p1, p2, colorair)
+            end
+
+            let # Clinker inlet.
+                p0 = Luxor.Point(-265, 50)
+                p1 = Luxor.Point(-250, 50)
+                p2 = Luxor.Point(-200, 0)
+                inlet_main(p0, p1, p2, colorsol)
+            end
+
+            let # Crushing pipeline.
+                p0 = Luxor.Point(-200, 0)
+                p1 = Luxor.Point(125, 0)
+                p2 = Luxor.Point(125, -100)
+                p3 = Luxor.Point(200, -100)
+                Luxor.sethue(colormix)
+                Luxor.move(p0)
+                Luxor.line(p1)
+                Luxor.line(p2)
+                Luxor.line(p3)
+                Luxor.strokepath()
+            end
+
+            let # Crushing air inlet.
+                p0 = Luxor.Point(-150, -50)
+                p1 = Luxor.Point(-150, 0)
+                Luxor.sethue(colorair)
+                Luxor.arrow(p0, p1)
+                Luxor.move(p0)
+                Luxor.line(p1)
+                Luxor.strokepath()
+            end
+
+            showcrusher && let # Crusher.
+                Luxor.move(-50, 30)
+                Luxor.line(Luxor.Point(100, 30))
+                Luxor.line(Luxor.Point(100, -30))
+                Luxor.line(Luxor.Point(-50, -30))
+                Luxor.closepath()
+                Luxor.sethue("orange"); Luxor.fillpreserve()
+                Luxor.sethue("black"); Luxor.strokepath()
+            end
+
+            let # Cooling system.
+                arrowheadlength = 10
+
+                p0 = Luxor.Point(75, 60)
+                p1 = Luxor.Point(75, 0)
+                p2 = Luxor.Point(-25, 0)
+                p3 = Luxor.Point(-25, 60)
+
+                pm = Luxor.Point(75, 40)
+                pn = Luxor.Point(-25, 40 + arrowheadlength)
+
+                Luxor.sethue(colorrfr)
+                Luxor.arrow(p0, pm; arrowheadlength)
+                Luxor.arrow(p2, pn; arrowheadlength)
+                Luxor.move(p0)
+                Luxor.line(p1)
+                Luxor.line(p2)
+                Luxor.line(p3)
+                Luxor.strokepath()
+            end
+
+            let # Separator air.
+                p0 = Luxor.Point(100, -70)
+                p1 = Luxor.Point(125, -70)
+                Luxor.sethue(colorair)
+                Luxor.arrow(p0, p1)
+                Luxor.move(p0)
+                Luxor.line(p1)
+                Luxor.strokepath()
+            end
+
+            let # Recirculation pipe.
+                p0 = Luxor.Point(125, -100)
+                p1 = Luxor.Point(-100, -100)
+                p2 = Luxor.Point(-100, 0)
+                Luxor.sethue(colorsol)
+                Luxor.arrow(p1, p2)
+                Luxor.move(p0)
+                Luxor.line(p1)
+                Luxor.line(p2)
+                Luxor.strokepath()
+            end
+
+            showseparator && let # Separator.
+                Luxor.move(125, -80)
+                Luxor.line(Luxor.Point(110, -114))
+                Luxor.line(Luxor.Point(140, -114))
+                Luxor.closepath()
+                Luxor.sethue("gray"); Luxor.fillpreserve()
+                Luxor.sethue("black"); Luxor.strokepath()
+            end
+
+            let # Packing products.
+                p0 = Luxor.Point(200, -100)
+                p1 = Luxor.Point(200, 0)
+                Luxor.sethue(colorsol)
+                Luxor.arrow(p0, p1)
+                Luxor.move(p0)
+                Luxor.line(p1)
+                Luxor.strokepath()
+
+                p0 = Luxor.Point(200, -100)
+                p1 = Luxor.Point(250, -100)
+                Luxor.sethue(colorair)
+                Luxor.arrow(p0, p1)
+                Luxor.move(p0)
+                Luxor.line(p1)
+                Luxor.strokepath()
+
+
+                p0 = Luxor.Point(230, 0)
+                p1 = Luxor.Point(230, -100)
+                Luxor.sethue(colorair)
+                Luxor.arrow(p0, p1)
+                Luxor.move(p0)
+                Luxor.line(p1)
+                Luxor.strokepath()
+            end
+
+            showseparator && let # Packing.
+                Luxor.move(200, -80)
+                Luxor.line(Luxor.Point(185, -114))
+                Luxor.line(Luxor.Point(215, -114))
+                Luxor.closepath()
+                Luxor.sethue("gray"); Luxor.fillpreserve()
+                Luxor.sethue("black"); Luxor.strokepath()
+            end
+
+            let # Joining points.
+                radius = 2
+                Luxor.sethue("black")
+                Luxor.circle(Luxor.Point(-200, 0), radius; action = :fill)
+                Luxor.circle(Luxor.Point(-150, 0), radius; action = :fill)
+                Luxor.circle(Luxor.Point(-100, 0), radius; action = :fill)
+                Luxor.circle(Luxor.Point(125, -70), radius; action = :fill)
+                Luxor.circle(Luxor.Point(230, -100), radius; action = :fill)
+            end
+
+            let # Add annotations
+                inp = model.inputs
+                ops = model.unitops
+
+                crusher   = ops.crusher
+                separator = ops.separator
+                cyclone   = ops.cyclone
+
+                trans_sep = ops.transport_sep
+                trans_rec = ops.transport_rec
+
+                liq_cool = ops.pipe_cool.materials[1] isa AbstractLiquidMaterial
+
+                # halign = :center
+                valign = :middle
+
+                round1(x) = round(x; digits = 1)
+
+                celsius(T) = round1(ustrip(T) - TREF)
+
+                crush_power = round1(crusher.power.ḣ / 1000)
+                cooling_power = round1(crusher.loss.ḣ / 1000)
+
+                ṁ_clinker = round1(3600ops.clinker_stream.ṁ)
+                ṁ_recircs = round1(3600separator.solids.ṁ)
+                ṁ_product = round1(3600cyclone.solids.ṁ)
+
+                q_par_air = round1(kg_h_to_nm3h(3600ops.parasite_air_stream.ṁ))
+                q_cru_air = round1(kg_h_to_nm3h(3600ops.crusher_air_stream.ṁ))
+                q_sep_air = round1(kg_h_to_nm3h(3600ops.separator_air_stream.ṁ))
+                q_tot_air = round1(kg_h_to_nm3h(3600ustrip(inp.ṁ_tot_air)))
+                q_oth_air = round1(kg_h_to_nm3h(3600ops.balance_air_stream.ṁ))
+
+                if liq_cool
+                    q_cooling = "$(round1(3600ops.cooling_stream.ṁ)) kg/h (0)"
+                else
+                    q_cooling = "$(round1(kg_h_to_nm3h(3600ops.cooling_stream.ṁ))) Nm³/h (0)"
+                end
+
+                T_env     = celsius(inp.T_env)
+                T_crush1  = celsius(crusher.rawmeal.T)
+                T_crush2  = celsius(crusher.product.T)
+                T_coolant = celsius(crusher.coolant.T)
+                T_recircs = celsius(separator.solids.T)
+                T_in_sep  = celsius(trans_sep.product.T)
+                T_out_rec = celsius(trans_rec.product.T)
+
+                let # Controls
+                    Luxor.sethue("black")
+
+                    Luxor.text("Environment at $(T_env) °C",
+                         Luxor.Point(-340, -140); valign, halign = :left)
+
+                    Luxor.text("Crushing @ $(crush_power) kW",
+                         Luxor.Point(25, -20); valign, halign = :center)
+
+                    Luxor.text("Cooling @ $(-1cooling_power) kW",
+                         Luxor.Point(25, 10); valign, halign = :center)
+
+                    Luxor.text(q_cooling,
+                         Luxor.Point(75, 65);  valign, halign = :left, angle = π/2)
+
+                    Luxor.text("$(q_tot_air) Nm³/h (5)",
+                         Luxor.Point(255, -100); valign, halign = :left)
+
+                    Luxor.text("$(q_sep_air) Nm³/h (4)",
+                         Luxor.Point(96,  -70);  valign, halign = :right)
+
+                    Luxor.text("$(q_cru_air) Nm³/h (3)",
+                         Luxor.Point(-150, -60);  valign, halign = :center)
+
+                    Luxor.text("$(q_par_air) Nm³/h (2)",
+                         Luxor.Point(-269, -50); valign, halign = :right)
+
+                    Luxor.text("$(ṁ_clinker) kg/h (1)",
+                         Luxor.Point(-269, 50); valign, halign = :right)
+
+                    Luxor.text("$(q_oth_air) Nm³/h (6)",
+                         Luxor.Point(240, -70); valign, halign = :left, angle = π/2)
+
+                    Luxor.text("$(ṁ_product) kg/h",
+                         Luxor.Point(210, -70); valign, halign = :left, angle = π/2)
+                end
+
+                let # Measurements
+                    Luxor.sethue("#FF2299")
+
+                    Luxor.text("$(T_coolant) °C",
+                         Luxor.Point(-25, 65); valign, halign = :left, angle = π/2)
+
+                    Luxor.text("$(T_out_rec) °C",
+                         Luxor.Point(-90, -40); valign, halign = :left, angle = π/2)
+
+                    Luxor.text("$(T_in_sep) °C",
+                         Luxor.Point(135, -69); valign, halign = :left, angle = π/2)
+                end
+
+                let # Fitted
+                    Luxor.sethue("#9922FF")
+
+                    Luxor.text("$(ṁ_recircs) kg/h @ $(T_recircs) °C",
+                         Luxor.Point(25, -110); valign, halign = :center)
+                end
+
+                let # Main result
+                    Luxor.sethue("#FF0000")
+                    Luxor.fontsize(16)
+
+                    Luxor.text("$(T_crush1) °C",
+                         Luxor.Point(-55, 15); valign, halign = :right)
+
+                    Luxor.text("$(T_crush2) °C",
+                         Luxor.Point(105, 15); valign, halign = :left)
+                end
+            end
+
+        end width height saveas
+    end
+end;
+
+# ╔═╡ 922da43b-46a6-4335-957d-9d2637d35679
+refmodel, reffig = let
+    # Contribution of leaks *through* crusher.
+    Q̇avai = q̇_tot_air - q̇_cru_air - q̇_sep_air
+    ϕwarn = 100Q̇leak / Q̇avai
+
+    # Select how to compute leak.
+    q̇_par_air = (q̇_tot_air - q̇_cru_air - q̇_sep_air) * ϕ / 100
+
+    model = CooledCrusherModel(;
+        ηseparator    = ηseparator,
+        T_env         = T_env * u"°C",
+        ṁ_cooler      = nm3h_to_kg_h(Q̇cool) * u"kg/hr",
+        ṁ_clinker     = ṁ_clinker * u"kg/hr",
+        ṁ_cru_air     = nm3h_to_kg_h(q̇_cru_air) * u"kg/hr",
+        ṁ_sep_air     = nm3h_to_kg_h(q̇_sep_air) * u"kg/hr",
+        ṁ_par_air     = nm3h_to_kg_h(q̇_par_air) * u"kg/hr",
+        ṁ_tot_air     = nm3h_to_kg_h(q̇_tot_air) * u"kg/hr",
+        power_crusher = power_crusher * u"kW",
+        T_in_cool     = T_env * u"°C",
+        T_out_cool    = T_out_cool * u"°C",
+        T_in_sep      = T_in_sep * u"°C",
+        T_out_rec     = T_out_rec * u"°C",
+        verbose       = false
+    )
+
+    report(model; show_tree = false)
+
+    fig = get_results_diagram(model)
+
+    model, fig
+end;
+
+# ╔═╡ 13c18387-5dc4-4d60-97bb-04377e724431
+reffig
+
+# ╔═╡ 1f6c5710-9b8c-43b9-bba4-8248aedf63f8
+refmodel
+
+# ╔═╡ 13f9fbe4-4f5c-4059-819e-28f8ae023c0a
+let
+    function get_pipe_global_htc(pipe, T∞, T₁)
+        return 2pipe.power.ḣ / (2T∞ - pipe.product.T - T₁)
+    end
+
+    model = refmodel
+    ops = model.unitops
+    T∞ = ustrip(model.inputs.T_env)
+
+    U_sep = let
+        pipe = ops.transport_sep
+        T₁ = ops.crusher.product.T
+        get_pipe_global_htc(pipe, T∞, T₁)
+    end
+
+    U_rec = let
+        pipe = ops.transport_rec
+        T₁ = ops.separator.solids.T
+        get_pipe_global_htc(pipe, T∞, T₁)
+    end
+
+    @info """
+    Coefficient estimation for model use in simulation mode:
+
+    - From crusher to separator.... $(round(U_sep; digits = 1)) W/K
+    - Along recirculation stream... $(round(U_rec; digits = 1)) W/K
+    """
 end
 
-# ╔═╡ 5fb0b8ea-0d30-4496-9f66-dc70dfed94ed
+# ╔═╡ 2f0f105d-ba0c-467f-87f7-664316976be5
 md"""
-### Operations
+### Air cooling simulator
+
+| Quantity              | Value                                          | Unit |
+|----------------------:|:-----------------------------------------------|:----:|
+Use leak % below [^T]   | $(@bind useϕ1 PlutoUI.CheckBox(default=false)) |
+Leak percentage [^T]    | $(@bind ϕleaks1    slider(0.0:0.5:100.0, 31.5))| [%]
+Separator eff. [^T]     | $(@bind ηsep1      slider(45:0.05:65, 47.65))  | [%]
+Environment temp. [^M]  | $(@bind T_env1     slider(-2.0:0.5:45.0, 5.0)) | [°C]
+Cooler end temp. [^M]   | $(@bind T_oc1      slider(50:1:100, 93))       | [°C]
+Milling power [^C]      | $(@bind power1     slider(90:1:120, 107))      | [kW]
+Clinker feed rate [^C]  | $(@bind ṁ_clinker1 slider(450:10:900, 820))    | [kg/h]
+Crusher air flow [^C]   | $(@bind q̇_cru_air1 slider(1600:10:2500, 1881)) | Nm³/h
+Separator air flow [^C] | $(@bind q̇_sep_air1 slider(300:10:800, 431))    | Nm³/h
+Total air flow [^C]     | $(@bind q̇_tot_air1 slider(2500:50:4000, 3600)) | Nm³/h
 """
 
-# ╔═╡ e0202175-5b36-45ed-95fa-95016290bdf2
-""" Represents an energy stream.
+# ╔═╡ c5c0fcac-c4ab-4ec0-baf6-4ec57f38833c
+let
+    # Contribution of leaks *through* crusher.
+    Q̇avai = q̇_tot_air1 - q̇_cru_air1 - q̇_sep_air1
+    ϕwarn = 100Q̇leak / Q̇avai
 
-Attributes
-----------
-$(FIELDS)
-"""
-struct EnergyStream
-	"Energy flow provided by stream [W]."
-	ḣ::Float64
+    # Select how to compute leak.
+    ϕ = useϕ1 ? ϕleaks1 : ϕwarn
+    q̇_par_air1 = Q̇avai * ϕ/100
+
+    @warn md"""
+    | Quantity      | Measured              | Using |
+    |:--------------|:---------------------:|:-----:|
+    | Recommended ϕ | $(round(ϕwarn, digits=1))% | $(round(ϕ, digits=1))%
+    | Parasite air  | $(round(Q̇leak)) Nm³/h | $(round(q̇_par_air1))
+    | Separator air | $(round(Q̇seps)) Nm³/h | $(round(q̇_sep_air1)) Nm³/h
+    """
+
+    model = CooledCrusherModel(;
+        ηseparator    = ηsep1,
+        T_env         = T_env1 * u"°C",
+
+        ṁ_clinker     = ṁ_clinker1 * u"kg/hr",
+        ṁ_cooler      = nm3h_to_kg_h(Q̇cool) * u"kg/hr",
+        ṁ_cru_air     = nm3h_to_kg_h(q̇_cru_air1) * u"kg/hr",
+        ṁ_sep_air     = nm3h_to_kg_h(q̇_sep_air1) * u"kg/hr",
+        ṁ_par_air     = nm3h_to_kg_h(q̇_par_air1) * u"kg/hr",
+        ṁ_tot_air     = nm3h_to_kg_h(q̇_tot_air1) * u"kg/hr",
+        power_crusher = power1 * u"kW",
+
+        T_in_cool     = T_env1 * u"°C",
+        T_out_cool    = T_oc1 * u"°C",
+
+        verbose       = true,
+        htc_pipe_sep  = 362.1,
+        htc_pipe_rec  = 97.9,
+    )
+
+    report(model; show_tree = true)
+
+    get_results_diagram(model)
 end
 
-# ╔═╡ 8358c1f0-3a5f-401a-9755-06e8a70acda9
+# ╔═╡ 23eb1f32-8d85-4f2c-a2fb-ebed13797703
+md"""
+### Water cooling simulator
+
+| Quantity              | Value                                          | Unit |
+|----------------------:|:-----------------------------------------------|:----:|
+Use leak % below [^T]   | $(@bind useϕ2 PlutoUI.CheckBox(default=false)) |
+Leak percentage [^T]    | $(@bind ϕleaks2    slider(0.0:0.5:100.0, 31.5))| [%]
+Separator eff. [^T]     | $(@bind ηsep2      slider(45:0.05:65, 50.8))   | [%]
+Environment temp. [^M]  | $(@bind T_env2     slider(-2.0:0.5:45.0, 5.0)) | [°C]
+Cooler feed rate [^C]   | $(@bind ṁ_cooler2  slider(0.5:0.1:2.0, 1.3))   | [m/h]
+Cooler start temp. [^M] | $(@bind T_ic2      slider(5:1:40, 20))         | [°C]
+Cooler end temp. [^M]   | $(@bind T_oc2      slider(30:1:70, 55))        | [°C]
+Milling power [^C]      | $(@bind power2     slider(90:1:120, 105))      | [kW]
+Clinker feed rate [^C]  | $(@bind ṁ_clinker2 slider(450:10:900, 550))    | [kg/h]
+Crusher air flow [^C]   | $(@bind q̇_cru_air2 slider(1600:10:2500, 2232)) | Nm³/h
+Separator air flow [^C] | $(@bind q̇_sep_air2 slider(300:10:800, 431))    | Nm³/h
+Total air flow [^C]     | $(@bind q̇_tot_air2 slider(2500:50:4000, 3500)) | Nm³/h
+"""
+
+# ╔═╡ 0610abd3-0bd4-429d-9544-ba76a9b66dd6
+let
+    # Contribution of leaks *through* crusher.
+    Q̇avai = q̇_tot_air2 - q̇_cru_air2 - q̇_sep_air2
+    ϕwarn = 100Q̇leak / Q̇avai
+
+    # Select how to compute leak.
+    ϕ = useϕ2 ? ϕleaks2 : ϕwarn
+    q̇_par_air2 = Q̇avai * ϕ/100
+
+    model = CooledCrusherModel(;
+        ηseparator    = ηsep2,
+        T_env         = T_env2 * u"°C",
+
+        ṁ_clinker     = ṁ_clinker2 * u"kg/hr",
+        ṁ_cooler      = 1000ṁ_cooler2 * u"kg/hr",
+        ṁ_cru_air     = nm3h_to_kg_h(q̇_cru_air2) * u"kg/hr",
+        ṁ_sep_air     = nm3h_to_kg_h(q̇_sep_air2) * u"kg/hr",
+        ṁ_par_air     = nm3h_to_kg_h(q̇_par_air2) * u"kg/hr",
+        ṁ_tot_air     = nm3h_to_kg_h(q̇_tot_air2) * u"kg/hr",
+        power_crusher = power2 * u"kW",
+
+        T_in_cool     = T_ic2 * u"°C",
+        T_out_cool    = T_oc2 * u"°C",
+
+        verbose       = true,
+        cooler        = (Water() , [1.0]),
+        htc_pipe_sep  = 362.1,
+        htc_pipe_rec  = 97.9,
+    )
+
+    report(model; show_tree = true)
+
+    get_results_diagram(model)
+end
+
+# ╔═╡ f50a28c1-ee29-4c03-a7cb-a7f0f7a89f90
 md"""
 ### Materials
 """
 
-# ╔═╡ e6f4b40c-a3b4-4da7-a252-085724901e8d
-begin
-	@info "Abstract materials..."
-	
-	abstract type AbstractMaterial end
-	
-	abstract type AbstractLiquidMaterial <: AbstractMaterial end
-	
-	abstract type AbstractSolidMaterial <: AbstractMaterial end
+# ╔═╡ 98e5e20c-21a3-46f1-bb43-e4fcb173aef2
+@doc "" Clinker
 
-	abstract type AbstractGasMaterial <: AbstractMaterial end
+# ╔═╡ 5dc4f8ec-3eca-4c35-ae47-0fdcc42c63e2
+@doc "" Water
 
-	issolid(m::AbstractMaterial)  = m isa AbstractSolidMaterial
-	isliquid(m::AbstractMaterial) = m isa AbstractLiquidMaterial
-	isgas(m::AbstractMaterial)    = m isa AbstractGasMaterial
-end;
+# ╔═╡ 30b7fff5-d417-4f15-9fa3-f623f288522f
+@doc "" Air
 
-# ╔═╡ 233e95d3-9611-4fdf-b12f-3ce43434866d
-"Array of materials to include in a stream."
-struct StreamPipeline
-	materials::Vector{AbstractMaterial}
-end
+# ╔═╡ ae42fc02-d9a0-4432-8710-4242881ad3d9
+@doc "" StreamPipeline
 
-# ╔═╡ e1c94f16-9d56-4965-86d1-abfc19195b87
-""" Represents a material stream.
-
-Attributes
-----------
-$(FIELDS)
-"""
-struct MaterialStream
-	"Material mass flow rate [kg/s]."
-	ṁ::Float64
-	
-	"Stream temperature [K]."
-	T::Float64
-	
-	"Stream pressure [Pa]."
-	P::Float64
-	
-	"Components mass fractions [-]."
-	Y::Vector{Float64}
-	
-	"Materials pipeline associated to `Y`."
-	pipeline::StreamPipeline
-end
-
-# ╔═╡ 71c95469-a9d8-4bc0-919f-c56228e72264
-"Liquid water material."
-struct Water <: AbstractLiquidMaterial
-end
-
-# ╔═╡ 31717fa3-09dd-4ebc-8a08-f485b5216b11
-"Solid clinker material."
-struct Clinker <: AbstractSolidMaterial
-	ρ::Float64
-	h::Polynomial
-
-	function Clinker(; ρ = 900.0, h = [0, 850.0])
-		return new(ρ, Polynomial(h, :T))
-	end
-end
-
-# ╔═╡ 40fc5c9c-b90e-4c15-b290-46dd355f62cc
+# ╔═╡ 99dcc167-9819-4709-a29b-6a188ccd8005
 md"""
-### Methods
+### Unit operations
 """
 
-# ╔═╡ f344ac3d-d199-4f22-a7a3-6ca9de6448e3
-"Mass flow rate per species in stream."
-mass_flow_spec(s) = s.ṁ * s.Y
+# ╔═╡ 69827035-a90b-4b67-945b-859331d0b772
+@doc "" MaterialStream
 
-# ╔═╡ dbfbd233-d64d-4d8e-96e6-b88e24eb2726
+# ╔═╡ 4a440365-a6ee-4f68-95ba-3a842d557a99
+@doc "" EnergyStream
+
+# ╔═╡ 0c4161dd-43a8-4819-86aa-e8f1e4d44adc
+@doc "" TransportPipeline
+
+# ╔═╡ ee845e93-d778-4140-8be2-6b75b75a46e2
+@doc "" transport_pipe
+
+# ╔═╡ 987a1327-7c74-4629-98df-f7a1af80abfa
+@doc "" SolidsSeparator
+
+# ╔═╡ e5f1199b-408a-41ad-89fd-eb4f836d6704
+@doc "" CooledCrushingMill
+
+# ╔═╡ cf37b478-26bc-4e01-bc1b-2f712eef3c66
 md"""
-### Functions
+### System model
 """
 
-# ╔═╡ 6bf34eae-5ba7-431d-a2a4-c184ce5e46ec
-"Default slider with displayed value."
-slider(rng, def) = PlutoUI.Slider(rng, default=def, show_value=true)
+# ╔═╡ 4d424005-c282-4e63-9704-e892a8d7d42f
+@doc "" CooledCrusherInputs
 
-# ╔═╡ 259238bf-7fd4-487c-999f-f864ebe472f6
+# ╔═╡ c5f5a18b-3b2d-4092-ac4f-5078c7b55cac
+@doc "" CooledCrusherSolverPars
+
+# ╔═╡ 79ca119f-818c-49cc-a855-de761dfb5be8
+@doc "" CooledCrusherUnits
+
+# ╔═╡ 9b5eec59-1132-4b04-8841-d8801bf09404
+@doc "" CooledCrusherModel
+
+# ╔═╡ d6b3e74b-bbd5-4b8b-a7bc-81c3681bdd27
 md"""
-| Quantity | Type | Value | Unit |
-|---------:|:----:|:------|:----:|
-Use leak % below | Tuning | $(@bind useϕ1 PlutoUI.CheckBox(default=false)) |
-Leak percentage | Tuning | $(@bind ϕleaks1 slider(0.0:0.5:100.0, 31.5)) | [%]
-Separator efficiency | Tuning | $(@bind ηseparator1 slider(45.0:0.05:65.0, 47.65)) | [%]
-Environment temp. | Measured | $(@bind T_env1 slider(-2.0:0.5:25.0, 5.0)) | [°C] 
-Cooling air final temp. | Measured | $(@bind T_out_cool1 slider(50.0:1.0:100.0, 93.0)) | [°C] 
-Temp. after recirculation | Measured | $(@bind T_out_rec1 slider(30.0:0.5:50.0, 39.0)) | [°C] 
-Milling power | Controls | $(@bind power_crusher1 slider(90.0:1.0:120.0, 107.0)) | [kW] 
-Clinker feed rate | Controls | $(@bind ṁ_clinker1 slider(450.0:10.0:900.0, 820.0)) | [kg/h]
-Crusher air flow | Controls | $(@bind q̇_cru_air1 slider(1600.0:10.0:2500.0, 1881.0)) | Nm³/h
-Separator air flow | Controls | $(@bind q̇_sep_air1 slider(300.0:10.0:800.0, 431.0)) | Nm³/h
-Total air flow | Controls | $(@bind q̇_tot_air1 slider(2500.0:50.0:4000.0, 3600.0)) | Nm³/h
+### Functions & methods
 """
 
-# ╔═╡ f0b08fbb-3226-4a43-b922-419d3d357482
+# ╔═╡ 3e63f6bf-fb4d-45b6-8f65-9c82040310bb
+@doc "" density
+
+# ╔═╡ e27573fa-3aa4-439c-ac2f-663612cf7ceb
+@doc "" enthalpy
+
+# ╔═╡ 85f3cd13-8e67-46a2-9f64-2103e20f901e
+@doc "" enthalpyflowrate
+
+# ╔═╡ 12a3eb03-06b5-4722-8d4a-259f2adf40dc
+@doc "" exchanged_heat
+
+# ╔═╡ 061700b1-a904-459d-9545-2c43d709bdf9
+@doc "" normal_flow_rate
+
+# ╔═╡ 2a95a7b3-bbde-49bf-96e8-2c19e7a145bc
+@doc "" nm3h_to_kg_h
+
+# ╔═╡ ed66faa6-092c-46b5-b519-2465405b755a
+@doc "" kg_h_to_nm3h
+
+# ╔═╡ a4c62e2e-004e-46f1-aa91-c95e10d76e9d
 md"""
-| Quantity | Type | Value | Unit |
-|---------:|:----:|:------|:----:|
-Leak percentage | Tuning | $(@bind ϕleaks2 slider(0.0:0.5:100.0, 31.5)) | [%]
-Separator efficiency | Tuning | $(@bind ηseparator2 slider(45.0:0.05:65.0, 50.80)) | [%]
-Environment temp. | Measured | $(@bind T_env2 slider(-2.0:0.5:25.0, 5.0)) | [°C] 
-Cooling water final temp. | Measured | $(@bind T_out_cool2 slider(30.0:1.0:60.0, 55.0)) | [°C] 
-Temp. before separator | Measured | $(@bind T_in_sep2 slider(30.0:0.5:80.0, 40.0)) | [°C] 
-Temp. after recirculation | Measured | $(@bind T_out_rec2 slider(10.0:0.5:50.0, 30.0)) | [°C] 
-Milling power | Controls | $(@bind power_crusher2 slider(90.0:1.0:120.0, 105.0)) | [kW] 
-Clinker feed rate | Controls | $(@bind ṁ_clinker2 slider(450.0:10.0:900.0, 550.0)) | [kg/h]
-Crusher air flow | Controls | $(@bind q̇_cru_air2 slider(2000.0:10.0:3000.0, 2232.0)) | Nm³/h
-Separator air flow | Controls | $(@bind q̇_sep_air2 slider(300.0:10.0:800.0, 431.0)) | Nm³/h
-Total air flow | Controls | $(@bind q̇_tot_air2 slider(2500.0:50.0:4000.0, 3500.0)) | Nm³/h
+### Post-processing
 """
 
-# ╔═╡ 973aa28a-71bb-4149-8265-6a6ccbdf414c
-md"""
-### Parameters
-"""
+# ╔═╡ 3565e485-b361-4c50-8640-d9011adb3816
+@doc "" report
 
-# ╔═╡ b99a067e-e166-4e75-a538-5c6d5334a25e
-"Ideal gas constant [J/(mol.K)]."
-const RGAS::Float64 = 8.314_462_618_153_24
+# ╔═╡ bf0f0ccb-d327-4d11-8bcc-5d9d526a3eb1
+@doc "" get_results_diagram
 
-# ╔═╡ 043062dc-dfda-4c33-a35f-95cd2a2c78a0
-"Reference atmospheric pressure [Pa]."
-const PREF::Float64 = 101325.0
-
-# ╔═╡ 04388a90-7355-4451-a8af-b030b600ad3f
-"Normal atmospheric temperature [K]."
-const TREF::Float64 = 273.15
-
-# ╔═╡ ab7c84de-c9fe-4c7e-b6de-4f2b1c108feb
-"Compute normal flow rate based on measurements"
-function normal_flow_rate(; T, ⌀, U)
-	return 3600 * (TREF / T) * U * π * ⌀^2 / 4
-end
-
-# ╔═╡ ce400b07-d495-4e66-942a-f3a25570e747
-"Air mean molecular mass [kg/mol]."
-const M_AIR::Float64 = 0.0289647
-
-# ╔═╡ 59a8f15c-552e-47f7-9c33-5ca7ee340874
-"Coefficients for air enthalpy polynomial [J/kg]."
-const H_AIR::Vector{Float64} = [
-	-2.6257123774377e+05,
-	 9.8274248481342e+02,
-	 4.9125599795629e-02
-]
-
-# ╔═╡ c53fa179-986b-46b4-8c88-ccdb4378e99f
-"Gas air material."
-struct Air <: AbstractGasMaterial
-	M̄::Float64
-	h::Polynomial
-
-	function Air(; h = H_AIR)
-		return new(M_AIR, Polynomial(h, :T))
-	end
-end
-
-# ╔═╡ fb68d662-30ed-4191-a634-b34192210bf0
-begin
-	density(mat::AbstractMaterial, T, P) = error("Not implemented")
-	
-	density(mat::Clinker, T, P) = mat.ρ
-	
-	density(mat::Water, T, P) = 1.0 / SpecificV(P, T)
-	
-	density(mat::Air, T, P) = (P * mat.M̄) / (RGAS * T)
-	
-	@doc "Evaluates the density of material [kg/m³]."
-	density
-end
-
-# ╔═╡ b03e91ec-40b9-441c-bca5-e7d3e7e6f88a
-begin
-	enthalpy(mat::AbstractMaterial, pars...) = error("Not implemented")
-	
-	enthalpy(mat::Clinker, T, P) = mat.h(T)
-
-	# NOTE: inputs in kJ/kg = f(MPa, K)
-	# enthalpy(mat::Water, T, P) = 1.0e+03SpecificH(1.0e-06P, T)
-	enthalpy(mat::Water, T, P) = 4182.0T
-	
-	enthalpy(mat::Air, T, P) = mat.h(T)
-
-	function enthalpy(pipe::StreamPipeline, T, P, Y)
-		return sum(Y .* enthalpy.(pipe.materials, T, P))
-	end
-
-	function enthalpy(stream::MaterialStream, T, P)
-		return enthalpy(stream.pipeline, T, P, stream.Y)
-	end
-
-	function enthalpy(stream::MaterialStream; kwargs...)
-		kwargs_dict = Dict(kwargs)
-		T = get(kwargs_dict, :T, stream.T)
-		P = get(kwargs_dict, :P, stream.P)
-		Y = get(kwargs_dict, :Y, stream.Y)
-		return enthalpy(stream.pipeline, T, P, Y)
-	end
-	
-	@doc "Evaluates the enthalpy of material [J/kg]."
-	enthalpy
-end
-
-# ╔═╡ 212b9dad-ba96-4c1f-9e2f-d490d56d4f97
-begin
-	enthalpyflowrate(s::MaterialStream) = s.ṁ * enthalpy(s)
-
-	enthapyflowrate(e::EnergyStream) = e.ḣ
-
-	@doc "Enthalpy flow rate of given stream [W]."
-	enthapyflowrate
-end
-
-# ╔═╡ 5c204dd1-3c56-4942-8cd6-f1b894f114e8
-"Heat exchanged with stream to match outlet temperature."
-function exchanged_heat(s::MaterialStream, T_out)
-	# The rate of heat leaving the system [kg/s * J/kg = W].
-	ḣ_out = s.ṁ * enthalpy(s; T = T_out)
-
-	# The change of rate across the system [W].
-	return ḣ_out - enthalpyflowrate(s)
-end
-
-# ╔═╡ d3fee54d-4fdf-4703-9bd6-911a73a07f41
-""" Represents a pipeline with heat transfer.
-
-Models
-------
-1. `:TARGET_EXIT_TEMP` evaluates the heat transfer lost to environment \
-  provided a target final stream temperature given by keyword argument \
-  `temp_out`. Product temperature is updated through an `EnergyStream` \
-  built with energy exchange computed through `exchanged_heat`, so that \
-  numerical value can be slightly different from target value.
-1. `:USING_GLOBAL_HTC` makes use of a global heat transfer coefficient \
-  to evaluate heat flux across the pipe.
-
-To-do's
--------
-- Implement heat transfer losses through a convective heat transfer
-  coefficient (HTC) computed from a suitable Nusselt number, thus
-  enabling the use of pipeline in *simulation* mode.
-
-Attributes
-----------
-$(FIELDS)
-"""
-struct TransportPipeline
-	"The output material stream at the end of pipeline."
-	product::MaterialStream
-
-	"The heat exchanged in pipeline [W]."
-	power::EnergyStream
-
-	function TransportPipeline(;
-			product,
-			model,
-			verbose = true,
-			kwargs...
-		)
-		##########
-		# INITIAL
-		##########
-		
-		Δq = 0.0
-		power = EnergyStream(Δq)
-
-		##########
-		# MODEL
-		##########
-		
-		if model == :TARGET_EXIT_TEMP
-			# Compute enthalpy change with environment.
-			Δq = exchanged_heat(product, kwargs[:temp_out])
-
-			# Stream of energy to correct system temperature.
-			power = EnergyStream(Δq)
-			
-			# Correct energy in both streams.
-			product += power
-		elseif model == :USING_GLOBAL_HTC
-			# Compute enthalpy change with environment.
-			T∞ = kwargs[:temp_env]
-			T₂ = kwargs[:temp_out]
-			U = kwargs[:glob_htc]
-			Δq = U * (T∞ - 0.5 * (T₂ + product.T))
-			
-			# Stream of energy to correct system temperature.
-			power = EnergyStream(Δq)
-			
-			# Correct energy in both streams.
-			product += power
-		end
-
-		##########
-		# POST
-		##########
-		
-		verbose && begin
-			rounder(v) = round(v; digits = 1)
-			p = rounder(ustrip(uconvert(u"kW", Δq * u"W")))
-			T = rounder(ustrip(uconvert(u"°C", product.T * u"K")))
-			
-			@info """
-			TransportPipeline with model $(model)
-
-			Heat loss to environment..........: $(p) kW
-			Product stream final temperature..: $(T) °C
-			"""
-		end
-
-		##########
-		# NEW
-		##########
-		
-		return new(product, power)
-	end
-end
-
-# ╔═╡ f1623dc0-3901-41aa-b398-15ca529c813e
-begin
-	@info "Overloaded Base methods."
-	
-	function Base.:+(s₁::MaterialStream, s₂::MaterialStream;
-	                 verbose = false, message = "")
-		# Can only mix streams using same material pipeline.
-		@assert s₁.pipeline == s₂.pipeline
-
-		# Retrieve flow rates.
-		ṁ₁ = s₁.ṁ
-		ṁ₂ = s₂.ṁ
-
-		# Total mass flow is the sum of stream flows.
-		ṁ = ṁ₁ + ṁ₂
-
-		# Mass weighted average pressure.
-		P = (ṁ₁ * s₁.P + ṁ₂ * s₂.P) / ṁ
-
-		# Compute species total mass flow and divide by total flow
-		# rate to get resulting stream mass fractions.
-		Y = (ṁ₁ * s₁.Y + ṁ₂ * s₂.Y) / ṁ
-
-		# Energy flow is the sum of individual stream flows.
-		ĥ = enthalpyflowrate(s₁) + enthalpyflowrate(s₂)
-	
-		function f(t)
-			# Create a stream with other conditions fixed.
-			sn = MaterialStream(ṁ, t, P, Y, s₁.pipeline)
-
-			# Check if with temperature `t` it matches `ĥ`.
-			return enthalpyflowrate(sn) - ĥ
-		end
-
-		# Find new temperature starting from the top.
-		T = find_zero(f, max(s₁.T, s₂.T))
-
-		# Create resulting stream.
-		sₒ = MaterialStream(ṁ, T, P, Y, s₁.pipeline)
-		
-		verbose && begin
-			rounder(v) = round(v; digits = 1)
-			T1 = rounder(ustrip(uconvert(u"°C", s₁.T * u"K")))
-			T2 = rounder(ustrip(uconvert(u"°C", s₂.T * u"K")))
-			To = rounder(ustrip(uconvert(u"°C", sₒ.T * u"K")))
-
-			# TODO make more informative!
-			@info """
-			MaterialStream addition (+) $(message)
-
-			First stream temperature..........: $(T1) °C
-			Second stream temperature.........: $(T2) °C
-			Resulting stream temperature......: $(To) °C
-			"""
-		end
-		
-		return sₒ
-	end
-
-	function Base.:+(s::MaterialStream, e::EnergyStream)
-		# Energy flow is the sum of individual stream flows.
-		ĥ = enthalpyflowrate(s) + enthapyflowrate(e)
-	
-		function f(t)
-			# Create a stream with other conditions fixed.
-			sn = MaterialStream(s.ṁ, t, s.P, s.Y, s.pipeline)
-
-			# Check if with temperature `t` it matches `ĥ`.
-			return enthalpyflowrate(sn) - ĥ
-		end
-
-		# # Find new temperature starting from current temperature.
-		T = find_zero(f, TREF)
-
-		# Create resulting stream.
-		return MaterialStream(s.ṁ, T, s.P, s.Y, s.pipeline)
-	end
-
-	function Base.:-(e₁::EnergyStream, e₂::EnergyStream)
-		return EnergyStream(e₁.ḣ - e₂.ḣ)
-	end
-	
-	function Base.:+(e₁::EnergyStream, e₂::EnergyStream)
-		return EnergyStream(e₁.ḣ + e₂.ḣ)
-	end
-
-	function Base.:+(p::TransportPipeline, s::MaterialStream)
-		return p.product + s
-	end
-end
-
-# ╔═╡ 476cdc10-f435-4af5-af77-fe107edd3580
-let
-	M = [
-		21.2   1.2   13.0  56.0;
-		18.8   1.1   10.0  55.0;
-		19.6   1.4   17.0  56.0;
-		18.6   1.5   10.0  55.0;
-		19.0   1.2   11.0  53.0;
-		20.0   1.4   19.0  55.0;
-		20.0   1.4   18.0  55.0;
-		20.0   1.4   17.0  54.0;
-	]
-	
-	h(T) = SpecificH(PREF * u"Pa", T)
-	ρ(T) = density(Water(), T, PREF * u"Pa")
-	
-	# h(T) =  4182.0u"J/(kg*K)" * T
-	# ρ(T) = 996.0u"kg/m^3"
-	
-	V̇ = uconvert.(u"m^3/s", M[:, 2] * u"m^3/hr")
-	T1 = uconvert.(u"K", M[:, 1] * u"°C")
-	T2 = uconvert.(u"K", M[:, 4] * u"°C")
-
-	ρw = map(ρ, T1)
-	ΔH = map(h, T2) - map(h, T1)
-
-	Q̇ = mean(uconvert.(u"kW", @. ρw * V̇ * ΔH))
-	V̇ = mean(M[:, 2])
-	
-	@info """
-	Reference cooling power.... $(round(ustrip(Q̇); digits = 1)) kW
-	Mean water flow rate....... $(round(V̇; digits = 1)) m³/h
-	"""
-end
-
-# ╔═╡ c4e10dbe-9f02-4156-aeba-8b3a4cdd4761
-""" Represents a solids separator with efficiency η.
-
-To-do's
--------
-- Add inverse model to automatically tune efficiency η.
-
-Attributes
-----------
-$(FIELDS)
-"""
-struct SolidsSeparator
-	"Solids separation efficiency [-]."
-	η::Float64
-
-	"The stream to be separated into solids and others."
-	source::MaterialStream
-
-	"The output solids stream."
-	solids::MaterialStream
-
-	"The output remaining stream."
-	others::MaterialStream
-	
-	function SolidsSeparator(source; η = 1.0)
-		# Retrieve elements kept constant.
-		T, P, pipe = source.T, source.P, source.pipeline
-		
-		# Retrieve array of solids mass fractions, zeroeing other materials.
-		Ys0 = map((m, Y)->issolid(m) ? Y : 0, pipe.materials, source.Y)
-	
-		# The mass flow of split solids stream corresponds to the mass flow
-		# of solids multiplied by the separation efficiency of separator.
-		m_sol = source.ṁ * sum(Ys0) * η
-	
-		# The mass flow of secondary stream (recirculating solids and other
-		# phases) is the total nass flow minus separated solids.
-		m_oth = source.ṁ - m_sol
-	
-		# Mass flow rates of each species in original flow.
-		mk0 = source.ṁ * source.Y
-	
-		# For solids we multiply their total flow rate by the renormalized
-		# mass fractions of individual species, balance for other stream.
-		mk1 = m_sol * Ys0 ./ sum(Ys0)
-		mk2 = mk0 .- mk1
-	
-		# Mass fractions are recomputed for each stream.
-		Ys1 = mk1 / m_sol
-		Ys2 = mk2 / m_oth
-
-		# Create new streamsp
-		solids = MaterialStream(m_sol, T, P, Ys1, pipe)
-		others = MaterialStream(m_oth, T, P, Ys2, pipe)
-		
-		return new(η, source, solids, others)
-	end
-end
-
-# ╔═╡ 59f5d9e0-12b9-49a5-9dee-b4e9e9a4b010
-""" Represents a crushing device with cooling system.
-
-Models
-------
-1. `:TARGET_COOLANT_TEMP` evaluates the heat transfer lost to coolant \
-  provided a target final stream temperature given by keyword argument \
-  `temp_out`. Product temperature is updated through an `EnergyStream` \
-  built with energy exchange computed through `exchanged_heat`, so that \
-  numerical value can be slightly different from target value.
-
-To-do's
--------
-- Implement heat exchange coefficient so that the model can be used in *simulation*.
-
-Attributes
-----------
-$(FIELDS)
-"""
-struct CooledCrushingMill
-	"The input meal applied to crushing process."
-	rawmeal::MaterialStream
-
-	"The output material stream at the end of product pipeline."
-	product::MaterialStream
-
-	"The output material stream at the end of cooling pipeline."
-	coolant::MaterialStream
-
-	"The power applied to the crushing process [W]"
-	power::EnergyStream
-
-	"The heat exchanged in between product and cooling pipelines [W]."
-	loss::EnergyStream
-
-	"Global heat transfer coefficient [W/K]."
-	globalhtc::Float64
-
-	function CooledCrushingMill(;
-			product,
-			coolant,
-			power,
-			model,
-			verbose = true,
-			kwargs...
-		)
-		##########
-		# INITIAL
-		##########
-		
-		Δq = 0.0
-		loss = EnergyStream(Δq)
-		meal = product
-		
-		##########
-		# MODEL
-		##########
-		
-		if model == :TARGET_COOLANT_TEMP
-			# Compute enthalpy change in cooling stream.
-			Δq = exchanged_heat(coolant, kwargs[:temp_out])
-
-			# Stream of energy to correct system temperature.
-			loss = EnergyStream(Δq)
-			
-			# Correct energy in both streams.
-			product += power - loss
-			coolant += loss
-		end
-
-		##########
-		# POST
-		##########
-		
-		verbose && begin
-			rounder(v) = round(v; digits = 1)
-			Q = rounder(ustrip(uconvert(u"kW", power.ḣ * u"W")))
-			p = rounder(ustrip(uconvert(u"kW", Δq * u"W")))
-			T = rounder(ustrip(uconvert(u"°C", product.T * u"K")))
-			
-			@info """
-			CooledCrushingMill with model $(model)
-
-			Power applied to product stream...: $(Q) kW
-			Heat extracted by cooling system..: $(p) kW
-			Product stream final temperature..: $(T) °C
-			"""
-		end
-
-		##########
-		# NEW
-		##########
-
-		globalhtc = -1.0
-		
-		return new(meal, product, coolant, power, loss, globalhtc)
-	end
-end
-
-# ╔═╡ 02e91a7a-9374-45f5-a1d2-41ff2b604aa2
-""" Creates unit operations for `CooledCrusherModel`.
-
-Specific key-word arguments of this structure include the materials specification
-with the following *pure fluid* defaults. If the user needs specific material
-properties, the material must implement all the method interfaces provided for the
-default materials below.
-
-- `cooler  = (Air(),     [1.0])`
-- `clinker = (Clinker(), [1.0, 0.0])`
-- `air     = (Air(),     [0.0, 1.0])`
-
-Attributes
-----------
-$(FIELDS)
-"""
-struct CooledCrusherUnits
-	"Cooling fluid materials pipeline."
-	pipe_cool::StreamPipeline
-
-	"Production fluid materials pipeline."
-	pipe_prod::StreamPipeline
-	
-	"Energy stream applied to crushing mill."
-	milling_power::EnergyStream
-	
-	"Crusher cooling stream."
-	cooling_stream::MaterialStream
-	
-	"Clinker main feed stream."
-	clinker_stream::MaterialStream
-	
-	"Auxiliary crusher air stream."
-	crusher_air_stream::MaterialStream
-	
-	"Auxiliary separator air stream."
-	separator_air_stream::MaterialStream
-	
-	"Parasite air stream mixed with clinker."
-	parasite_air_stream::MaterialStream
-	
-	"Product recirculation stream."
-	recirc_stream::MaterialStream
-	
-	"Balance air as complement to parasite air."
-	balance_air_stream::MaterialStream
-	
-	"Premix of clinker and parasite air."
-	meal_stream::MaterialStream
-	
-	"Crusher operation model."
-	crusher::CooledCrushingMill
-	
-	"Separator operation model."
-	separator::SolidsSeparator
-	
-	"Cyclone operation model."
-	cyclone::SolidsSeparator
-
-	"Pipeline between crusher and separator."
-	transport_sep::TransportPipeline
-
-	"Product recirculation pipeline."
-	transport_rec::TransportPipeline
-	
-	function CooledCrusherUnits(inputs, solver; kwargs...)
-		kw = Dict(kwargs)
-		
-		# Strip physical units.
-		T_env         = ustrip(inputs.T_env)
-		P_env         = ustrip(inputs.P_env)
-		T_in_cool     = ustrip(inputs.T_in_cool)
-		power_crusher = ustrip(inputs.power_crusher)
-		ṁ_cooler      = ustrip(inputs.ṁ_cooler)
-		ṁ_clinker     = ustrip(inputs.ṁ_clinker)
-		ṁ_cru_air     = ustrip(inputs.ṁ_cru_air)
-		ṁ_sep_air     = ustrip(inputs.ṁ_sep_air)
-		ṁ_par_air     = ustrip(inputs.ṁ_par_air)
-		ṁ_tot_air     = ustrip(inputs.ṁ_tot_air)
-
-		val_or_na(qty) = isnothing(qty) ? qty : ustrip(qty)
-		
-		T_out_cool    = val_or_na(inputs.T_out_cool)
-		T_in_sep      = val_or_na(inputs.T_in_sep)
-		T_out_rec     = val_or_na(inputs.T_out_rec)
-
-		# Get material streams.
-		cooler, Y_cool     = get(kw, :cooler,  (Air(),     [1.0]))
-		clinker, Y_clinker = get(kw, :clinker, (Clinker(), [1.0, 0.0]))
-		air, Y_air         = get(kw, :air,     (Air(),     [0.0, 1.0]))
-
-		pipe_cool = StreamPipeline([cooler])
-		pipe_prod = StreamPipeline([clinker, air])
-			
-		# Aliases
-		T, P = T_env, P_env
-		
-		# Applied power at mill.
-		milling_power = EnergyStream(power_crusher)
-	
-		# Cooling material stream.
-		cooling_stream = MaterialStream(
-			ṁ_cooler, T_in_cool, P_env, Y_cool, pipe_cool)
-		
-		# Clinker material stream.
-		clinker_stream = MaterialStream(
-			ṁ_clinker, T_env, P_env, Y_clinker, pipe_prod)
-	
-		# Milling air stream.
-		crusher_air_stream = MaterialStream(
-			ṁ_cru_air, T_env, P_env, Y_air, pipe_prod)
-	
-		# Separator air stream.
-		separator_air_stream = MaterialStream(
-			ṁ_sep_air, T_env, P_env, Y_air, pipe_prod)
-		
-		# Air leaks in mill.
-		parasite_air_stream = MaterialStream(
-			ṁ_par_air, T_env, P_env, Y_air, pipe_prod)
-	
-		# Dummy recirculation for initialization.
-		recirc_stream = MaterialStream(
-			0.0, T_env, P_env, Y_clinker, pipe_prod)
-
-		# XXX Experimental code.
-		pipe_rec_model = :TARGET_EXIT_TEMP
-		htc_pipe_sep = get(kw, :htc_pipe_sep, nothing)
-		htc_pipe_rec = get(kw, :htc_pipe_rec, nothing)
-		
-		# Premix meal that is not iterated upon.
-		meal_stream = clinker_stream
-		meal_stream += crusher_air_stream
-		meal_stream += parasite_air_stream
-	
-		# Run iterative procedure till steady-state.
-		itercount = 0
-		ṁnow = 1.0e+09
-		Tnow = 1.0e+09
-
-		crusher = nothing
-		separator = nothing
-		transport_sep = nothing
-		transport_rec = nothing
-		
-		while itercount <= solver.max_iter
-			# Add crushing energy and cool down system.
-			crusher = CooledCrushingMill(; 
-				product  = meal_stream + recirc_stream,
-				coolant  = cooling_stream,
-				power    = milling_power,
-				model    = :TARGET_COOLANT_TEMP,
-				verbose  = false,
-				temp_out = T_out_cool
-			)
-
-			# Loose some heat in vertical pipeline.
-			transport_sep = if isnothing(htc_pipe_sep)
-				TransportPipeline(;
-					product  = crusher.product,
-					model    = :TARGET_EXIT_TEMP,
-					verbose  = false,
-					temp_out = T_in_sep
-				)
-			else
-				@warn "here $(T_in_sep)"
-				T_in_sep = isnothing(T_in_sep) ? crusher.product.T : T_in_sep 
-				
-				this_pipe = TransportPipeline(;
-					product  = crusher.product,
-					model    = :USING_GLOBAL_HTC,
-					verbose  = false,
-					temp_out = T_in_sep,
-					temp_env = T_env,
-					glob_htc = htc_pipe_sep
-				)
-
-				T_in_sep = this_pipe.product.T
-				this_pipe
-			end
-			
-			# Add air stream to crushed product.
-			toseparator2 = transport_sep + separator_air_stream
-	
-			# Recover streams from separator
-			separator = SolidsSeparator(toseparator2; η = inputs.ηseparator)
-	
-			# Loose some heat in recirculation pipeline.
-			transport_rec = if isnothing(htc_pipe_rec)
-				TransportPipeline(;
-					product  = separator.solids,
-					model    = :TARGET_EXIT_TEMP,
-					verbose  = false,
-					temp_out = T_out_rec
-				)
-			else
-				@warn "here $(T_in_sep)"
-				T_out_rec = isnothing(T_out_rec) ? crusher.product.T : T_out_rec 
-				
-				this_pipe = TransportPipeline(;
-					product  = separator.solids,
-					model    = :USING_GLOBAL_HTC,
-					verbose  = false,
-					temp_out = T_out_rec,
-					temp_env = T_env,
-					glob_htc = htc_pipe_rec
-				)
-
-				T_out_rec = this_pipe.product.T
-				this_pipe
-			end
-			
-			# Compute property changes.
-			ΔT = abs(Tnow - transport_rec.product.T)
-			Δṁ = abs(ṁnow - transport_rec.product.ṁ)
-	
-			# Check convergence.
-			if ΔT < solver.T_tol && Δṁ < solver.ṁ_tol
-				solver.verbose && begin
-					@info "CooledCrusherModel: $(itercount) iterations"
-				end
-				break
-			end
-	
-			# Prepare next iteration.
-			recirc_stream = transport_rec.product
-			Tnow = recirc_stream.T
-			ṁnow = recirc_stream.ṁ
-			itercount += 1
-		end
-	
-		cyclone = SolidsSeparator(separator.others; η = 1.0)
-	
-		# Total air leaving the system (after cyclone)
-		balance_air_stream = MaterialStream(
-			ṁ_tot_air - cyclone.others.ṁ, T, P, Y_air, pipe_prod)
-		
-		return new(
-			pipe_cool,
-			pipe_prod,
-			milling_power,
-			cooling_stream,
-			clinker_stream,
-			crusher_air_stream,
-			separator_air_stream,
-			parasite_air_stream,
-			recirc_stream,
-			balance_air_stream,
-			meal_stream,
-			crusher,
-			separator,
-			cyclone,
-			transport_sep,
-			transport_rec
-		)
-	end
-end
-
-# ╔═╡ 6ecea6d3-18ea-484e-8a4f-b78a88589917
-""" Implements an air cooled crusher circuit.
-
-Constructor parameters are described in `CooledCrusherInputs` together with
-additional key-word arguments, which are extended in `CooledCrusherSolverPars`
-and `CooledCrusherUnits`.
-
-Attributes
-----------
-$(FIELDS)
-"""
-struct CooledCrusherModel
-	"Processed model inputs with units."
-	inputs::CooledCrusherInputs
-
-	"Solver operations to manage operation units."
-	solver::CooledCrusherSolverPars
-
-	"*De facto* process integration model."
-	unitops::CooledCrusherUnits
-	
-	function CooledCrusherModel(; T_env, ṁ_cooler, ṁ_clinker, ṁ_cru_air, ṁ_sep_air,
-			ṁ_par_air, ṁ_tot_air, power_crusher, ηseparator, kwargs...)
-		
-		inputs = CooledCrusherInputs(; T_env, ηseparator, power_crusher, ṁ_cooler,
-			ṁ_clinker, ṁ_cru_air, ṁ_sep_air, ṁ_par_air, ṁ_tot_air, kwargs...)
-
-		solver = CooledCrusherSolverPars(; kwargs...)
-		
-		unitops = CooledCrusherUnits(inputs, solver; kwargs...)
-
-		return new(inputs, solver, unitops)
-	end
-end
-
-# ╔═╡ 599ab13f-0f72-41da-bd49-f8b0e92f981c
-"Standardized report for `CooledCrusherModel`."
-function report(model::CooledCrusherModel; show_tree = true)
-	fmt(x) = round(x; digits = 1)
-
-	cooling = model.unitops.cooling_stream
-	crusher = model.unitops.crusher
-	separator = model.unitops.separator
-	T_out_rec = model.inputs.T_out_rec
-	
-	@info """
-	CooledCrusherModel
-
-	Cooling circuit:
-	- inlet temperature...... $(fmt(cooling.T - TREF)) °C
-	- outlet temperature..... $(fmt(crusher.coolant.T - TREF)) °C
-	- energy intake.......... $(fmt(crusher.loss.ḣ / 1000)) kW
-
-	Crusher circuit:
-	- inlet temperature...... $(fmt(crusher.rawmeal.T - TREF)) °C
-	- outlet temperature..... $(fmt(crusher.product.T - TREF)) °C
-
-	Recirculation circuit:
-	- flow rate.............. $(fmt(3600separator.solids.ṁ)) kg/h
-	- initial temperature.... $(fmt(separator.solids.T - TREF)) °C
-	- final temperature...... $(fmt(ustrip(T_out_rec) - TREF)) °C
-
-	"""
-	
-	if show_tree
-		@info model.inputs
-		@info model.unitops
-	end
-end
-
-# ╔═╡ 1a778f56-925f-4422-9b6a-56c7f29d4a4b
-"Normal state concentration [mol/m³]. "
-const C_AIR::Float64 = PREF / (RGAS * TREF)
-
-# ╔═╡ 95025c4c-73ac-4bc3-b098-f737f8a54dbb
-"Convert [Nm³/h] to [kg/h]."
-nm3h_to_kg_h(q) = C_AIR * M_AIR  * q
-
-# ╔═╡ 2b8550b5-e6ea-45ea-adaa-89fe9c5adc12
-"Convert [kg/h] to [Nm³/h]."
-kg_h_to_nm3h(m) = m / (C_AIR * M_AIR)
-
-# ╔═╡ ac1b87dd-d51b-4f94-8ae6-d5aaba10f365
-"Add annotations to results diagram for given model."
-function label_system(model::CooledCrusherModel)
-	inp = model.inputs
-	ops = model.unitops
-	
-	crusher   = ops.crusher
-	separator = ops.separator
-	cyclone   = ops.cyclone
-
-	trans_sep = ops.transport_sep
-	trans_rec = ops.transport_rec
-	
-	liq_cool = ops.pipe_cool.materials[1] isa AbstractLiquidMaterial
-	
-	# halign = :center
-	valign = :middle
-
-	round1(x) = round(x; digits = 1)
-	
-	celsius(T) = round1(ustrip(T) - TREF)
-
-	crush_power = round1(crusher.power.ḣ / 1000)
-	cooling_power = round1(crusher.loss.ḣ / 1000)
-
-	ṁ_clinker = round1(3600ops.clinker_stream.ṁ)
-	ṁ_recircs = round1(3600separator.solids.ṁ)
-	ṁ_product = round1(3600cyclone.solids.ṁ)
-	
-	q_par_air = round1(kg_h_to_nm3h(3600ops.parasite_air_stream.ṁ))
-	q_cru_air = round1(kg_h_to_nm3h(3600ops.crusher_air_stream.ṁ))
-	q_sep_air = round1(kg_h_to_nm3h(3600ops.separator_air_stream.ṁ))
-	q_tot_air = round1(kg_h_to_nm3h(3600ustrip(inp.ṁ_tot_air)))
-	q_oth_air = round1(kg_h_to_nm3h(3600ops.balance_air_stream.ṁ))
-
-	if liq_cool
-		q_cooling = "$(round1(3600ops.cooling_stream.ṁ)) kg/h (0)"
-	else
-		q_cooling = "$(round1(kg_h_to_nm3h(3600ops.cooling_stream.ṁ))) Nm³/h (0)"
-	end
-
-	T_env     = celsius(inp.T_env)
-	T_crush1  = celsius(crusher.rawmeal.T)
-	T_crush2  = celsius(crusher.product.T)
-	T_coolant = celsius(crusher.coolant.T)
-	T_recircs = celsius(separator.solids.T)
-	T_in_sep  = celsius(trans_sep.product.T)
-	T_out_rec = celsius(trans_rec.product.T)
-	
-	let # Controls
-		Luxor.sethue("black")
-		
-		Luxor.text("Environment at $(T_env) °C",
-			 Luxor.Point(-340, -140); valign, halign = :left)
-
-		Luxor.text("Crushing @ $(crush_power) kW",
-			 Luxor.Point(25, -20); valign, halign = :center)
-
-		Luxor.text("Cooling @ $(-1cooling_power) kW",
-			 Luxor.Point(25, 10); valign, halign = :center)
-
-		Luxor.text(q_cooling,
-			 Luxor.Point(75, 65);  valign, halign = :left, angle = π/2)
-
-		Luxor.text("$(q_tot_air) Nm³/h (5)",
-			 Luxor.Point(255, -100); valign, halign = :left)
-		
-		Luxor.text("$(q_sep_air) Nm³/h (4)",
-			 Luxor.Point(96,  -70);  valign, halign = :right)
-		
-		Luxor.text("$(q_cru_air) Nm³/h (3)",
-			 Luxor.Point(-150, -60);  valign, halign = :center)
-		
-		Luxor.text("$(q_par_air) Nm³/h (2)",
-			 Luxor.Point(-269, -50); valign, halign = :right)
-		
-		Luxor.text("$(ṁ_clinker) kg/h (1)",
-			 Luxor.Point(-269, 50); valign, halign = :right)
-
-		Luxor.text("$(q_oth_air) Nm³/h (6)",
-			 Luxor.Point(240, -70); valign, halign = :left, angle = π/2)
-		
-		Luxor.text("$(ṁ_product) kg/h",
-			 Luxor.Point(210, -70); valign, halign = :left, angle = π/2)
-	end
-	
-	let # Measurements
-		Luxor.sethue("#FF2299")
-		
-		Luxor.text("$(T_coolant) °C",
-			 Luxor.Point(-25, 65); valign, halign = :left, angle = π/2)
-
-		Luxor.text("$(T_out_rec) °C",
-			 Luxor.Point(-90, -40); valign, halign = :left, angle = π/2)
-
-		Luxor.text("$(T_in_sep) °C",
-			 Luxor.Point(135, -69); valign, halign = :left, angle = π/2)
-	end
-
-	let # Fitted
-		Luxor.sethue("#9922FF")
-		
-		Luxor.text("$(ṁ_recircs) kg/h @ $(T_recircs) °C",
-			 Luxor.Point(25, -110); valign, halign = :center)
-	end
-
-	let # Main result
-		Luxor.sethue("#FF0000")
-		Luxor.fontsize(16)
-
-		Luxor.text("$(T_crush1) °C",
-			 Luxor.Point(-55, 15); valign, halign = :right)
-
-		Luxor.text("$(T_crush2) °C",
-			 Luxor.Point(105, 15); valign, halign = :left)
-	end
-
-end
-
-# ╔═╡ 5a2187ea-bc66-470f-8dfb-754e01afb485
-"Graphical display of crusher balance results."
-function get_results_diagram(model; kwargs...)
-	function inlet_main(p0, p1, p2, c)
-		Luxor.sethue(c)
-		Luxor.arrow(p0, p1)
-		Luxor.move(p0)
-		Luxor.line(p1)
-		Luxor.line(p2)
-		Luxor.strokepath()
-	end
-	
-	kwargs_dict = Dict(kwargs)
-
-	# For @svg
-	height = get(kwargs_dict, :height, 300)
-	width  = get(kwargs_dict, :width, 700)
-	saveas = get(kwargs_dict, :saveas, "crusher.svg")
-
-	# Display control
-	showcrusher   = get(kwargs_dict, :showcrusher, true)
-	showseparator = get(kwargs_dict, :showseparator, true)
-	
-	Luxor.@svg let
-		colorbkg = "#EEEEEE"
-		colorair = "#0055FF"
-		colorsol = "#00AA44"
-		colormix = "#FF552F"
-		colorrfr = "#0099FF"
-		
-		Luxor.background(colorbkg)
-		
-		let # Leak air (7+9).
-			p0 = Luxor.Point(-265, -50)
-			p1 = Luxor.Point(-250, -50)
-			p2 = Luxor.Point(-200, 0)
-			inlet_main(p0, p1, p2, colorair)
-		end
-		
-		let # Clinker inlet.
-			p0 = Luxor.Point(-265, 50)
-			p1 = Luxor.Point(-250, 50)
-			p2 = Luxor.Point(-200, 0)
-			inlet_main(p0, p1, p2, colorsol)
-		end
-		
-		let # Crushing pipeline.
-			p0 = Luxor.Point(-200, 0)
-			p1 = Luxor.Point(125, 0)
-			p2 = Luxor.Point(125, -100)
-			p3 = Luxor.Point(200, -100)
-			Luxor.sethue(colormix)
-			Luxor.move(p0)
-			Luxor.line(p1)
-			Luxor.line(p2)
-			Luxor.line(p3)
-			Luxor.strokepath()
-		end
-		
-		let # Crushing air inlet.
-			p0 = Luxor.Point(-150, -50)
-			p1 = Luxor.Point(-150, 0)
-			Luxor.sethue(colorair)
-			Luxor.arrow(p0, p1)
-			Luxor.move(p0)
-			Luxor.line(p1)
-			Luxor.strokepath()
-		end
-	
-		showcrusher && let # Crusher.
-			Luxor.move(-50, 30)
-			Luxor.line(Luxor.Point(100, 30))
-			Luxor.line(Luxor.Point(100, -30))
-			Luxor.line(Luxor.Point(-50, -30))
-			Luxor.closepath()
-			Luxor.sethue("orange"); Luxor.fillpreserve()
-			Luxor.sethue("black"); Luxor.strokepath()
-		end
-
-		let # Cooling system.
-			arrowheadlength = 10
-			
-			p0 = Luxor.Point(75, 60)
-			p1 = Luxor.Point(75, 0)
-			p2 = Luxor.Point(-25, 0)
-			p3 = Luxor.Point(-25, 60)
-
-			pm = Luxor.Point(75, 40)
-			pn = Luxor.Point(-25, 40 + arrowheadlength)
-			
-			Luxor.sethue(colorrfr)
-			Luxor.arrow(p0, pm; arrowheadlength)
-			Luxor.arrow(p2, pn; arrowheadlength)
-			Luxor.move(p0)
-			Luxor.line(p1)
-			Luxor.line(p2)
-			Luxor.line(p3)
-			Luxor.strokepath()
-		end
-		
-		let # Separator air.
-			p0 = Luxor.Point(100, -70)
-			p1 = Luxor.Point(125, -70)
-			Luxor.sethue(colorair)
-			Luxor.arrow(p0, p1)
-			Luxor.move(p0)
-			Luxor.line(p1)
-			Luxor.strokepath()
-		end
-		
-		let # Recirculation pipe.
-			p0 = Luxor.Point(125, -100)
-			p1 = Luxor.Point(-100, -100)
-			p2 = Luxor.Point(-100, 0)
-			Luxor.sethue(colorsol)
-			Luxor.arrow(p1, p2)
-			Luxor.move(p0)
-			Luxor.line(p1)
-			Luxor.line(p2)
-			Luxor.strokepath()
-		end
-	
-		showseparator && let # Separator.
-			Luxor.move(125, -80)
-			Luxor.line(Luxor.Point(110, -114))
-			Luxor.line(Luxor.Point(140, -114))
-			Luxor.closepath()
-			Luxor.sethue("gray"); Luxor.fillpreserve()
-			Luxor.sethue("black"); Luxor.strokepath()
-		end
-
-		let # Packing products.
-			p0 = Luxor.Point(200, -100)
-			p1 = Luxor.Point(200, 0)
-			Luxor.sethue(colorsol)
-			Luxor.arrow(p0, p1)
-			Luxor.move(p0)
-			Luxor.line(p1)
-			Luxor.strokepath()
-
-			p0 = Luxor.Point(200, -100)
-			p1 = Luxor.Point(250, -100)
-			Luxor.sethue(colorair)
-			Luxor.arrow(p0, p1)
-			Luxor.move(p0)
-			Luxor.line(p1)
-			Luxor.strokepath()
-
-
-			p0 = Luxor.Point(230, 0)
-			p1 = Luxor.Point(230, -100)
-			Luxor.sethue(colorair)
-			Luxor.arrow(p0, p1)
-			Luxor.move(p0)
-			Luxor.line(p1)
-			Luxor.strokepath()
-		end
-		
-		showseparator && let # Packing.
-			Luxor.move(200, -80)
-			Luxor.line(Luxor.Point(185, -114))
-			Luxor.line(Luxor.Point(215, -114))
-			Luxor.closepath()
-			Luxor.sethue("gray"); Luxor.fillpreserve()
-			Luxor.sethue("black"); Luxor.strokepath()
-		end
-		
-		let # Joining points.
-			radius = 2
-			Luxor.sethue("black")
-			Luxor.circle(Luxor.Point(-200, 0), radius; action = :fill)
-			Luxor.circle(Luxor.Point(-150, 0), radius; action = :fill)
-			Luxor.circle(Luxor.Point(-100, 0), radius; action = :fill)
-			Luxor.circle(Luxor.Point(125, -70), radius; action = :fill)
-			Luxor.circle(Luxor.Point(230, -100), radius; action = :fill)
-		end
-
-		label_system(model)
-		
-	end width height saveas
-end
-
-# ╔═╡ 40b20385-ed8b-4ba9-9849-cedbbac4bb22
-refmodel, reffig = let
-	##########
-	# VALUES
-	##########
-	
-	ϕ             = 31.5
-	ηseparator    = 47.65
-	
-	T_env         = 5.0
-	T_out_cool    = 93.0
-	T_in_sep      = 73.0
-	T_out_rec     = 39.0
-	
-	q̇_tot_air     = 3600.0
-	q̇_cru_air     = 1881
-	q̇_sep_air     = 431.0
-	
-	ṁ_clinker     = 820.0
-	power_crusher = 107.0
-	
-	##########
-	# CALC
-	##########
-	
-	# Flow rate at cooling system outlet
-	Q̇cool = normal_flow_rate(; T = T_out_cool + TREF, ⌀ = 0.05, U = 13.6)
-
-	# Separator air inlet.
-	Q̇seps = normal_flow_rate(; T = T_env + TREF, ⌀ = 0.16, U = 10.0)
-
-	# Leak flow rates at balls loading and clinker charger.
-	Q̇leak = let
-		Q̇7 = normal_flow_rate(; T = T_env + TREF, ⌀ = 0.20, U = 1.6)
-		Q̇9 = normal_flow_rate(; T = T_env + TREF, ⌀ = 0.18, U = 2.5)
-		Q̇7 + Q̇9
-	end
-
-	# Contribution of leaks *through* crusher.
-	Q̇avai = q̇_tot_air - q̇_cru_air - q̇_sep_air
-	ϕwarn = 100Q̇leak / Q̇avai
-
-	# Select how to compute leak.
-	q̇_par_air = (q̇_tot_air - q̇_cru_air - q̇_sep_air) * ϕ / 100
-
-	model = CooledCrusherModel(;
-		ηseparator    = ηseparator,
-		T_env         = T_env * u"°C",
-		ṁ_cooler      = nm3h_to_kg_h(Q̇cool) * u"kg/hr",
-		ṁ_clinker     = ṁ_clinker * u"kg/hr",
-		ṁ_cru_air     = nm3h_to_kg_h(q̇_cru_air) * u"kg/hr",
-		ṁ_sep_air     = nm3h_to_kg_h(q̇_sep_air) * u"kg/hr",
-		ṁ_par_air     = nm3h_to_kg_h(q̇_par_air) * u"kg/hr",
-		ṁ_tot_air     = nm3h_to_kg_h(q̇_tot_air) * u"kg/hr",
-		power_crusher = power_crusher * u"kW",
-		T_in_cool     = T_env * u"°C",
-		T_out_cool    = T_out_cool * u"°C",
-		T_in_sep      = T_in_sep * u"°C",
-		T_out_rec     = T_out_rec * u"°C",
-		verbose       = false
-	)
-
-	report(model; show_tree = false)
-	
-	fig = get_results_diagram(model)
-
-	model, fig
-end;
-
-# ╔═╡ 1d29e311-c5d8-4dfe-9074-fccae14efadd
-reffig
-
-# ╔═╡ b4d09b13-d4cd-483f-81b4-60d6eb722149
-let
-	function get_pipe_global_htc(pipe, T∞, T₁)
-		return 2pipe.power.ḣ / (2T∞ - pipe.product.T - T₁)
-	end
-	
-	model = refmodel
-	ops = model.unitops
-	T∞ = ustrip(model.inputs.T_env)
-
-	U_sep = let
-		pipe = ops.transport_sep
-		T₁ = ops.crusher.product.T
-		get_pipe_global_htc(pipe, T∞, T₁)
-	end
-
-	# U_rec = let
-	# 	pipe = ops.transport_rec
-	# 	# TODO T₁ = ops.crusher.product.T
-	# 	get_pipe_global_htc(pipe, T∞, T₁)
-	# end
-end
-
-# ╔═╡ 2d97cef6-0808-4edb-aee4-156da381d805
-let
-	# XXX: weird values! Review!
-	# Flow rate at cooling system outlet
-	Q̇cool = normal_flow_rate(; T = 93.0 + TREF, ⌀ = 0.05, U = 13.6)
-
-	# Separator air inlet.
-	Q̇seps = normal_flow_rate(; T = 5.0 + TREF, ⌀ = 0.16, U = 10.0)
-
-	# Leak flow rates at balls loading and clinker charger.
-	Q̇leak = let
-		Q̇7 = normal_flow_rate(; T = 5.0 + TREF, ⌀ = 0.20, U = 1.6)
-		Q̇9 = normal_flow_rate(; T = 5.0 + TREF, ⌀ = 0.18, U = 2.5)
-		Q̇7 + Q̇9
-	end
-
-	# Contribution of leaks *through* crusher.
-	Q̇avai = q̇_tot_air1 - q̇_cru_air1 - q̇_sep_air1
-	ϕwarn = 100Q̇leak / Q̇avai
-
-	# Select how to compute leak.
-	ϕ = useϕ1 ? ϕleaks1 : ϕwarn
-	q̇_par_air1 = (q̇_tot_air1 - q̇_cru_air1 - q̇_sep_air1) * ϕ/100
-	
-	# Controlled flows.
-	ṁ_tot_air = nm3h_to_kg_h(q̇_tot_air1) * u"kg/hr"
-	ṁ_cru_air = nm3h_to_kg_h(q̇_cru_air1) * u"kg/hr"
-	ṁ_sep_air = nm3h_to_kg_h(q̇_sep_air1) * u"kg/hr"
-
-	# Estimated flows.
-	ṁ_par_air = nm3h_to_kg_h(q̇_par_air1) * u"kg/hr"
-	ṁ_cooler  = nm3h_to_kg_h(Q̇cool) * u"kg/hr"
-
-	@warn md"""
-	| Quantity      | Measured              | Using |
-	|:--------------|:---------------------:|:-----:|
-	| Recommended ϕ | $(round(ϕwarn, digits=1))% | $(round(ϕ, digits=1))%
-	| Parasite air  | $(round(Q̇leak)) Nm³/h | $(round(q̇_par_air1))
-	| Separator air | $(round(Q̇seps)) Nm³/h | $(round(q̇_sep_air1)) Nm³/h 
-	"""
-	
-	model = CooledCrusherModel(;
-		ηseparator    = ηseparator1,
-		T_env         = T_env1 * u"°C",
-		ṁ_cooler      = ṁ_cooler,
-		ṁ_clinker     = ṁ_clinker1 * u"kg/hr",
-		ṁ_cru_air     = ṁ_cru_air,
-		ṁ_sep_air     = ṁ_sep_air,
-		ṁ_par_air     = ṁ_par_air,
-		ṁ_tot_air     = ṁ_tot_air,
-		power_crusher = power_crusher1 * u"kW",
-		T_in_cool     = T_env1 * u"°C",
-		T_out_cool    = T_out_cool1 * u"°C",
-		T_out_rec     = T_out_rec1 * u"°C",
-		verbose       = true,
-		htc_pipe_sep  = 362.0,
-		htc_pipe_rec  = 10.0,
-	)
-
-	report(model; show_tree = true)
-	
-	fig = get_results_diagram(model)
-
-	fig
-end
-
-# ╔═╡ 7e3fde2d-2a78-408f-bcae-ab96ca880711
-let
-	# Contribution of leaks *through* crusher.
-	Q̇avai = q̇_tot_air2 - q̇_cru_air2 - q̇_sep_air2
-
-	# Select how to compute leak.
-	ϕ = ϕleaks2
-	q̇_par_air2 = (q̇_tot_air2 - q̇_cru_air2 - q̇_sep_air2) * ϕ/100
-	
-	# Controlled flows.
-	ṁ_tot_air = nm3h_to_kg_h(q̇_tot_air2) * u"kg/hr"
-	ṁ_cru_air = nm3h_to_kg_h(q̇_cru_air2) * u"kg/hr"
-	ṁ_sep_air = nm3h_to_kg_h(q̇_sep_air2) * u"kg/hr"
-
-	# Estimated flows.
-	ṁ_par_air = nm3h_to_kg_h(q̇_par_air2) * u"kg/hr"
-	ṁ_cooler  = 1300.0 * u"kg/hr"
-	
-	model = CooledCrusherModel(;
-		ηseparator    = ηseparator2,
-		T_env         = T_env2 * u"°C",
-		P_env         = 1.0u"atm",
-		ṁ_cooler      = ṁ_cooler,
-		ṁ_clinker     = ṁ_clinker2 * u"kg/hr",
-		ṁ_cru_air     = ṁ_cru_air,
-		ṁ_sep_air     = ṁ_sep_air,
-		ṁ_par_air     = ṁ_par_air,
-		ṁ_tot_air     = ṁ_tot_air,
-		power_crusher = power_crusher2 * u"kW",
-		T_in_cool     = 20.0 * u"°C",
-		T_out_cool    = T_out_cool2 * u"°C",
-		T_in_sep      = T_in_sep2 * u"°C",
-		T_out_rec     = T_out_rec2 * u"°C",
-		verbose       = true,
-		cooler        = (Water() , [1.0])
-	)
-
-	report(model; show_tree = true)
-	
-	fig = get_results_diagram(model)
-
-	fig
-end
-
-# ╔═╡ e27b81f1-0f3d-4825-b033-81c49778c962
+# ╔═╡ 6980e81b-b5e0-4179-9cba-9a35aa1113bb
 md"""
 ## Verifications
-"""
 
-# ╔═╡ f1ef5fc2-1b21-4f10-9966-faa31e413735
-md"""
 ### Water cooling power
+
+!!! warning "Do the same as for air!"
+
+    Implement own properties (i.e. polynomials) in water to be self-contained.
+
+    ```julia
+    # NOTE: inputs in kJ/kg = f(MPa, K)
+    enthalpy(mat::Water, T, P) = 1.0e+03SpecificH(1.0e-06P, T)
+    ```
 """
 
-# ╔═╡ 57155236-83b5-41cb-b404-533ce23a86c3
+# ╔═╡ 6bc03d9b-c794-434e-8453-b01316c503af
 let
-	water = Water()
-	
-	V̇ = 2.0u"m^3/hr"
-	
-	T = [20u"°C"; 40u"°C"]
-	
-	ρ = density(water, T[1], PREF * u"Pa")
-	
-	H = map(x->SpecificH(PREF * u"Pa", x), T)
-	
-	Q̇ = uconvert(u"kW", ρ * V̇ * diff(H)[1]) 
+    water = Water()
 
-	@info "Reference cooling power of $(Q̇)"
+    V̇ = 2.0u"m^3/hr"
+
+    T = [20u"°C"; 40u"°C"]
+
+    ρ = density(water, T[1], PREF * u"Pa")
+
+    H = map(x->SpecificH(PREF * u"Pa", x), T)
+
+    Q̇ = uconvert(u"kW", ρ * V̇ * diff(H)[1])
+
+    @info "Reference cooling power of $(Q̇)"
 end
 
-# ╔═╡ 855e9382-1edc-4865-9c13-19b52631fdd2
+# ╔═╡ 088a0e4d-ba74-423d-8747-5d36b1689ed1
 md"""
 ### Air properties
 
 !!! warning "IMPORTANT"
 
-	 The polynomial fit in the following cell was manually copied and stored as a constant. If any updates are provided to the air enthalpy computation method, this needs to be restored. This choice was made to make it easier to export developed code to an external module.
+     The polynomial fit in the following cell was manually copied and stored as a constant. If any updates are provided to the air enthalpy computation method, this needs to be restored. This choice was made to make it easier to export developed code to an external module.
 
 """
 
-# ╔═╡ 694b2733-2715-45b9-a153-4addc1f88e52
+# ╔═╡ 41752cc8-0409-43cc-9325-4b8a4d75eaea
 let
-	"Create air enthalpy function for given pressure and dew point."
-	function get_air_enthalpy_function(; P = 1.0u"atm", D = 0.0u"°C")
-		return x->Psychro.enthalpy(Psychro.MoistAir, x, Psychro.DewPoint, D, P)
-	end
-	
-	# XXX: the behaviour in `LinRange` is different from what happens after
-	# one calls `ustrip` for a single value. Here outputs are already in K.
-	T = LinRange(0.0u"°C", 200.0u"°C", 1000+1)
-	H = get_air_enthalpy_function().(T)
+    "Create air enthalpy function for given pressure and dew point."
+    function get_air_enthalpy_function(; P = 1.0u"atm", D = 0.0u"°C")
+        return x->Psychro.enthalpy(Psychro.MoistAir, x, Psychro.DewPoint, D, P)
+    end
 
-	cut = 100
-	hf = fit(ustrip(T), ustrip(H), 2; var = :T)
-	Hf = hf.(ustrip(T)[begin:cut:end])
+    # XXX: the behaviour in `LinRange` is different from what happens after
+    # one calls `ustrip` for a single value. Here outputs are already in K.
+    T = LinRange(0.0u"°C", 200.0u"°C", 1000+1)
+    H = get_air_enthalpy_function().(T)
 
-	f = Figure(size = (700, 400))
-	ax = Axis(f[1, 1]; title = string(hf))
-	lines!(ax, ustrip(T), ustrip(H) ./ 1000; color = :black)
-	scatter!(ax, ustrip(T)[begin:cut:end], Hf ./ 1000; color = :red)
-	ax.xlabel = "Temperature [K]"
-	ax.ylabel = "Enthalpy [kJ/kg]"
-	f
+    cut = 100
+    hf = fit(ustrip(T), ustrip(H), 2; var = :T)
+    Hf = hf.(ustrip(T)[begin:cut:end])
+
+    f = Figure(size = (700, 400))
+    ax = Axis(f[1, 1]; title = string(hf))
+    lines!(ax, ustrip(T), ustrip(H) ./ 1000; color = :black)
+    scatter!(ax, ustrip(T)[begin:cut:end], Hf ./ 1000; color = :red)
+    ax.xlabel = "Temperature [K]"
+    ax.ylabel = "Enthalpy [kJ/kg]"
+    f
 end
 
-# ╔═╡ c3abf986-a852-480d-a624-18d7631edcc7
+# ╔═╡ b23d604a-0f34-42df-91c7-19a525343646
 md"""
-## Implementation tests
+### Additional tests
 """
 
-# ╔═╡ 80a047ba-3469-4598-b000-d97ea9c75753
-"Verify specific heat approximation from enthalpy."
-function test_specific_heat(; T = [20u"°C"; 40u"°C"], atol = 0.005)
-	H = map(x->SpecificH(101325.0u"Pa", x), T)
-	c = mean(x->SpecificCP(101325.0u"Pa", x), T)
-	return c - (H[2] - H[1]) / (T[2] - T[1]) < atol * unit(c)
-end
-
-# ╔═╡ d2129783-2048-420b-9634-e46d741ee1d2
-begin
-	
-	function test_enthalpy(m, T, P)
-		pipe = StreamPipeline([m])
-		stream = MaterialStream(1.0, T, P, [1.0], pipe)
-		
-		h1 = enthalpy(m, T, P)
-		h2 = enthalpy(pipe, T, P, [1.0])
-		h3 = enthalpy(stream)
-		
-		result = h1 ≈ h2 ≈ h3
-		!result && @warn "Failed testing $(typeof(m))"
-		
-		return result
-	end
-
-	function test_enthalpy(; materials = [Water(), Clinker(), Air()])
-		return all(test_enthalpy.(materials, 293.15, 101325.0))
-	end
-		
-	@doc "Test enthalpy evaluations."
-	test_enthalpy
-end
-
-# ╔═╡ 858981f9-ea7a-4413-ab89-00d8987eb7d3
-"Test mass balance in solids separator."
-function test_solids_separator()
-	pipe = StreamPipeline([Clinker(), Air()])
-	source = MaterialStream(1.0, TREF, PREF, [0.2, 0.8], pipe)
-	splits = SolidsSeparator(source; η = 0.5)
-	
-	m0 = mass_flow_spec(source)
-	m1 = mass_flow_spec(splits.solids)
-	m2 = mass_flow_spec(splits.others)
-	
-	return sum(m1 + m2 - m0) ≈ 0.0
-end
-
-
-# ╔═╡ ffc9b07f-9639-4c77-a999-03807e3a520a
+# ╔═╡ bf8e1963-5852-4ca1-bfb1-79000f6e2ea0
 let
-	@info "Running tests..."
-	
-	@assert test_specific_heat()
-	@assert test_enthalpy()
-	@assert test_solids_separator()
-end
+    @info "Tests implementation and run"
+
+    "Mass flow rate per species in stream."
+    mass_flow_spec(s) = s.ṁ * s.Y
+
+    "Verify specific heat approximation from enthalpy."
+    function test_specific_heat(; T = [20u"°C"; 40u"°C"], atol = 0.005)
+        H = map(x->SpecificH(101325.0u"Pa", x), T)
+        c = mean(x->SpecificCP(101325.0u"Pa", x), T)
+        return c - (H[2] - H[1]) / (T[2] - T[1]) < atol * unit(c)
+    end
+
+    "Test enthalpy evaluations."
+    function test_enthalpy(; materials = [Water(), Clinker(), Air()])
+        function the_test(m, T, P)
+            pipe = StreamPipeline([m])
+            stream = MaterialStream(1.0, T, P, [1.0], pipe)
+
+            h1 = enthalpy(m, T, P)
+            h2 = enthalpy(pipe, T, P, [1.0])
+            h3 = enthalpy(stream)
+
+            result = h1 ≈ h2 ≈ h3
+            !result && @warn "Failed testing $(typeof(m))"
+
+            return result
+        end
+
+        return all(the_test.(materials, 293.15, 101325.0))
+    end
+
+    "Test mass balance in solids separator."
+    function test_solids_separator()
+        pipe = StreamPipeline([Clinker(), Air()])
+        source = MaterialStream(1.0, TREF, PREF, [0.2, 0.8], pipe)
+        splits = SolidsSeparator(source; η = 0.5)
+
+        m0 = mass_flow_spec(source)
+        m1 = mass_flow_spec(splits.solids)
+        m2 = mass_flow_spec(splits.others)
+
+        return sum(m1 + m2 - m0) ≈ 0.0
+    end
+
+    @assert test_specific_heat()
+    @assert test_enthalpy()
+    @assert test_solids_separator()
+end;
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -1809,10 +1829,10 @@ SteamTables = "43dc94dd-f011-5c5d-8ab2-5073432dc0ba"
 Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [compat]
-CairoMakie = "~0.11.8"
+CairoMakie = "~0.11.9"
 DocStringExtensions = "~0.9.3"
 Luxor = "~3.8.0"
-PlutoUI = "~0.7.57"
+PlutoUI = "~0.7.58"
 Polynomials = "~4.0.6"
 Psychro = "~0.3.0"
 Roots = "~2.1.2"
@@ -1824,9 +1844,9 @@ Unitful = "~1.19.0"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.9.3"
+julia_version = "1.10.1"
 manifest_format = "2.0"
-project_hash = "e11f3c21faf19c66a834c3f9074085fa92e4f1b9"
+project_hash = "9dc21d347d4e0dafa61db1b16e09c7ab6e3076e1"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -1846,9 +1866,9 @@ version = "0.3.0"
 
 [[deps.AbstractPlutoDingetjes]]
 deps = ["Pkg"]
-git-tree-sha1 = "c278dfab760520b8bb7e9511b968bf4ba38b7acc"
+git-tree-sha1 = "0f748c81756f2e5e6854298f11ad8b2dfae6911a"
 uuid = "6e696c72-6542-2067-7265-42206c756150"
-version = "1.2.3"
+version = "1.3.0"
 
 [[deps.AbstractTrees]]
 git-tree-sha1 = "2d9c9a55f9c93e8887ad391fbae72f8ef55e1177"
@@ -1856,16 +1876,17 @@ uuid = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
 version = "0.4.5"
 
 [[deps.Accessors]]
-deps = ["CompositionsBase", "ConstructionBase", "Dates", "InverseFunctions", "LinearAlgebra", "MacroTools", "Test"]
-git-tree-sha1 = "cb96992f1bec110ad211b7e410e57ddf7944c16f"
+deps = ["CompositionsBase", "ConstructionBase", "Dates", "InverseFunctions", "LinearAlgebra", "MacroTools", "Markdown", "Test"]
+git-tree-sha1 = "c0d491ef0b135fd7d63cbc6404286bc633329425"
 uuid = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"
-version = "0.1.35"
+version = "0.1.36"
 
     [deps.Accessors.extensions]
     AccessorsAxisKeysExt = "AxisKeys"
     AccessorsIntervalSetsExt = "IntervalSets"
     AccessorsStaticArraysExt = "StaticArrays"
     AccessorsStructArraysExt = "StructArrays"
+    AccessorsUnitfulExt = "Unitful"
 
     [deps.Accessors.weakdeps]
     AxisKeys = "94b1ba4f-4ee9-5380-92f1-94cde586c3c5"
@@ -1873,12 +1894,13 @@ version = "0.1.35"
     Requires = "ae029012-a4dd-5104-9daa-d747884805df"
     StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
     StructArrays = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
+    Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [[deps.Adapt]]
 deps = ["LinearAlgebra", "Requires"]
-git-tree-sha1 = "cde29ddf7e5726c9fb511f340244ea3481267608"
+git-tree-sha1 = "e2a9873379849ce2ac9f9fa34b0e37bde5d5fe0a"
 uuid = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
-version = "3.7.2"
+version = "4.0.2"
 weakdeps = ["StaticArrays"]
 
     [deps.Adapt.extensions]
@@ -1896,15 +1918,16 @@ version = "1.1.1"
 
 [[deps.ArrayInterface]]
 deps = ["Adapt", "LinearAlgebra", "Requires", "SparseArrays", "SuiteSparse"]
-git-tree-sha1 = "c5aeb516a84459e0318a02507d2261edad97eb75"
+git-tree-sha1 = "881e43f1aa014a6f75c8fc0847860e00a1500846"
 uuid = "4fba245c-0d91-5ea0-9b3e-6abc04ee57a9"
-version = "7.7.1"
+version = "7.8.0"
 
     [deps.ArrayInterface.extensions]
     ArrayInterfaceBandedMatricesExt = "BandedMatrices"
     ArrayInterfaceBlockBandedMatricesExt = "BlockBandedMatrices"
     ArrayInterfaceCUDAExt = "CUDA"
     ArrayInterfaceGPUArraysCoreExt = "GPUArraysCore"
+    ArrayInterfaceReverseDiffExt = "ReverseDiff"
     ArrayInterfaceStaticArraysCoreExt = "StaticArraysCore"
     ArrayInterfaceTrackerExt = "Tracker"
 
@@ -1913,6 +1936,7 @@ version = "7.7.1"
     BlockBandedMatrices = "ffab5731-97b5-5995-9138-79e8c1846df0"
     CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
     GPUArraysCore = "46192b85-c4d5-4398-a991-12ede77f4527"
+    ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267"
     StaticArraysCore = "1e83bf80-4336-4d27-bf5d-d5a4f845583c"
     Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c"
 
@@ -1942,9 +1966,9 @@ uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 
 [[deps.BenchmarkTools]]
 deps = ["JSON", "Logging", "Printf", "Profile", "Statistics", "UUIDs"]
-git-tree-sha1 = "f1f03a9fa24271160ed7e73051fba3c1a759b53f"
+git-tree-sha1 = "f1dff6729bc61f4d49e140da1af55dcd1ac97b2f"
 uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
-version = "1.4.0"
+version = "1.5.0"
 
 [[deps.Bzip2_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -1960,12 +1984,6 @@ version = "0.5.0"
 [[deps.CRC32c]]
 uuid = "8bf52ea8-c179-5cab-976a-9e18b702a9bc"
 
-[[deps.CRlibm]]
-deps = ["CRlibm_jll"]
-git-tree-sha1 = "32abd86e3c2025db5172aa182b982debed519834"
-uuid = "96374032-68de-5a5b-8d9e-752f78720389"
-version = "1.0.1"
-
 [[deps.CRlibm_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "e329286945d0cfc04456972ea732551869af1cfc"
@@ -1980,9 +1998,9 @@ version = "1.0.5"
 
 [[deps.CairoMakie]]
 deps = ["CRC32c", "Cairo", "Colors", "FFTW", "FileIO", "FreeType", "GeometryBasics", "LinearAlgebra", "Makie", "PrecompileTools"]
-git-tree-sha1 = "a80d49ed3333f5f78df8ffe76d07e88cc35e9172"
+git-tree-sha1 = "6dc1bbdd6a133adf4aa751d12dbc2c6ae59f873d"
 uuid = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
-version = "0.11.8"
+version = "0.11.9"
 
 [[deps.Cairo_jll]]
 deps = ["Artifacts", "Bzip2_jll", "CompilerSupportLibraries_jll", "Fontconfig_jll", "FreeType2_jll", "Glib_jll", "JLLWrappers", "LZO_jll", "Libdl", "Pixman_jll", "Pkg", "Xorg_libXext_jll", "Xorg_libXrender_jll", "Zlib_jll", "libpng_jll"]
@@ -1998,9 +2016,9 @@ version = "0.5.1"
 
 [[deps.ChainRulesCore]]
 deps = ["Compat", "LinearAlgebra"]
-git-tree-sha1 = "892b245fdec1c511906671b6a5e1bafa38a727c1"
+git-tree-sha1 = "575cd02e080939a33b6df6c5853d14924c08e35b"
 uuid = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
-version = "1.22.0"
+version = "1.23.0"
 weakdeps = ["SparseArrays"]
 
     [deps.ChainRulesCore.extensions]
@@ -2070,9 +2088,9 @@ version = "0.3.0"
 
 [[deps.Compat]]
 deps = ["TOML", "UUIDs"]
-git-tree-sha1 = "d2c021fbdde94f6cdaa799639adfeeaa17fd67f5"
+git-tree-sha1 = "c955881e3c981181362ae4088b35995446298b80"
 uuid = "34da2185-b29b-5c13-b0c7-acf172513d20"
-version = "4.13.0"
+version = "4.14.0"
 weakdeps = ["Dates", "LinearAlgebra"]
 
     [deps.Compat.extensions]
@@ -2081,7 +2099,7 @@ weakdeps = ["Dates", "LinearAlgebra"]
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.0.5+0"
+version = "1.1.0+0"
 
 [[deps.CompositionsBase]]
 git-tree-sha1 = "802bb88cd69dfd1509f6670416bd4434015693ad"
@@ -2115,9 +2133,9 @@ version = "1.16.0"
 
 [[deps.DataStructures]]
 deps = ["Compat", "InteractiveUtils", "OrderedCollections"]
-git-tree-sha1 = "1fb174f0d48fe7d142e1109a10636bc1d14f5ac2"
+git-tree-sha1 = "0f4b5d62a88d8f59003e43c25a8a90de9eb76317"
 uuid = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
-version = "0.18.17"
+version = "0.18.18"
 
 [[deps.DataValueInterfaces]]
 git-tree-sha1 = "bfc1187b79289637fa0ef6d4436ebdfe6905cbd6"
@@ -2296,11 +2314,10 @@ git-tree-sha1 = "21efd19106a55620a188615da6d3d06cd7f6ee03"
 uuid = "a3f928ae-7b40-5064-980b-68af3947d34b"
 version = "2.13.93+0"
 
-[[deps.Formatting]]
-deps = ["Printf"]
-git-tree-sha1 = "8339d61043228fdd3eb658d86c926cb282ae72a8"
-uuid = "59287772-0a20-5a39-b81b-1366585eb4c0"
-version = "0.4.2"
+[[deps.Format]]
+git-tree-sha1 = "f3cf88025f6d03c194d73f5d13fee9004a108329"
+uuid = "1fa38f19-a742-5d3f-a2b9-30dd87b9d5f8"
+version = "1.3.6"
 
 [[deps.ForwardDiff]]
 deps = ["CommonSubexpressions", "DiffResults", "DiffRules", "LinearAlgebra", "LogExpFunctions", "NaNMath", "Preferences", "Printf", "Random", "SpecialFunctions"]
@@ -2339,12 +2356,6 @@ version = "1.0.10+0"
 [[deps.Future]]
 deps = ["Random"]
 uuid = "9fa8497b-333b-5362-9e8d-4d0656e87820"
-
-[[deps.GPUArraysCore]]
-deps = ["Adapt"]
-git-tree-sha1 = "2d6ca471a6c7b536127afccfa7564b5b39227fe0"
-uuid = "46192b85-c4d5-4398-a991-12ede77f4527"
-version = "0.1.5"
 
 [[deps.GeoInterface]]
 deps = ["Extents"]
@@ -2495,14 +2506,15 @@ weakdeps = ["Unitful"]
     InterpolationsUnitfulExt = "Unitful"
 
 [[deps.IntervalArithmetic]]
-deps = ["CRlibm", "RoundingEmulator"]
-git-tree-sha1 = "c274ec586ea58eb7b42afd0c5d67e50ff50229b5"
+deps = ["CRlibm_jll", "RoundingEmulator"]
+git-tree-sha1 = "2d6d22fe481eff6e337808cc0880c567d7324f9a"
 uuid = "d1acc4aa-44c8-5952-acd4-ba5d80a2a253"
-version = "0.22.5"
-weakdeps = ["DiffRules", "RecipesBase"]
+version = "0.22.8"
+weakdeps = ["DiffRules", "ForwardDiff", "RecipesBase"]
 
     [deps.IntervalArithmetic.extensions]
     IntervalArithmeticDiffRulesExt = "DiffRules"
+    IntervalArithmeticForwardDiffExt = "ForwardDiff"
     IntervalArithmeticRecipesBaseExt = "RecipesBase"
 
 [[deps.IntervalSets]]
@@ -2563,9 +2575,9 @@ version = "0.1.5"
 
 [[deps.JpegTurbo_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "60b1194df0a3298f460063de985eae7b01bc011a"
+git-tree-sha1 = "3336abae9a713d2210bb57ab484b1e065edd7d23"
 uuid = "aacddb02-875f-59d6-b918-886e6ef4fbf8"
-version = "3.0.1+0"
+version = "3.0.2+0"
 
 [[deps.Juno]]
 deps = ["Base64", "Logging", "Media", "Profile"]
@@ -2620,21 +2632,26 @@ version = "0.3.1"
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
 uuid = "b27032c2-a3e7-50c8-80cd-2d36dbcbfd21"
-version = "0.6.3"
+version = "0.6.4"
 
 [[deps.LibCURL_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll", "Zlib_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "7.84.0+0"
+version = "8.4.0+0"
 
 [[deps.LibGit2]]
-deps = ["Base64", "NetworkOptions", "Printf", "SHA"]
+deps = ["Base64", "LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
 uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
+
+[[deps.LibGit2_jll]]
+deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll"]
+uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
+version = "1.6.4+0"
 
 [[deps.LibSSH2_jll]]
 deps = ["Artifacts", "Libdl", "MbedTLS_jll"]
 uuid = "29816b5a-b9ab-546f-933c-edad1886dfa8"
-version = "1.10.2+0"
+version = "1.11.0+1"
 
 [[deps.Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
@@ -2682,10 +2699,10 @@ uuid = "89763e89-9b03-5906-acba-b20f662cd828"
 version = "4.6.0+0"
 
 [[deps.Libuuid_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
-git-tree-sha1 = "7f3efec06033682db852f8b3bc3c1d2b0a0ab066"
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "e5edc369a598dfde567269dc6add5812cfa10cd5"
 uuid = "38a345b3-de98-5d2b-a5d3-14cd9215e700"
-version = "2.36.0+0"
+version = "2.39.3+0"
 
 [[deps.LightXML]]
 deps = ["Libdl", "XML2_jll"]
@@ -2752,10 +2769,10 @@ uuid = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 version = "0.5.13"
 
 [[deps.Makie]]
-deps = ["Animations", "Base64", "CRC32c", "ColorBrewer", "ColorSchemes", "ColorTypes", "Colors", "Contour", "DelaunayTriangulation", "Distributions", "DocStringExtensions", "Downloads", "FFMPEG_jll", "FileIO", "FilePaths", "FixedPointNumbers", "Formatting", "FreeType", "FreeTypeAbstraction", "GeometryBasics", "GridLayoutBase", "ImageIO", "InteractiveUtils", "IntervalArithmetic", "IntervalSets", "Isoband", "KernelDensity", "LaTeXStrings", "LinearAlgebra", "MacroTools", "MakieCore", "Markdown", "MathTeXEngine", "Observables", "OffsetArrays", "Packing", "PlotUtils", "PolygonOps", "PrecompileTools", "Printf", "REPL", "Random", "RelocatableFolders", "Scratch", "ShaderAbstractions", "Showoff", "SignedDistanceFields", "SparseArrays", "StableHashTraits", "Statistics", "StatsBase", "StatsFuns", "StructArrays", "TriplotBase", "UnicodeFun"]
-git-tree-sha1 = "40c5dfbb99c91835171536cd571fe6f1ba18ff97"
+deps = ["Animations", "Base64", "CRC32c", "ColorBrewer", "ColorSchemes", "ColorTypes", "Colors", "Contour", "DelaunayTriangulation", "Distributions", "DocStringExtensions", "Downloads", "FFMPEG_jll", "FileIO", "FilePaths", "FixedPointNumbers", "Format", "FreeType", "FreeTypeAbstraction", "GeometryBasics", "GridLayoutBase", "ImageIO", "InteractiveUtils", "IntervalSets", "Isoband", "KernelDensity", "LaTeXStrings", "LinearAlgebra", "MacroTools", "MakieCore", "Markdown", "MathTeXEngine", "Observables", "OffsetArrays", "Packing", "PlotUtils", "PolygonOps", "PrecompileTools", "Printf", "REPL", "Random", "RelocatableFolders", "Scratch", "ShaderAbstractions", "Showoff", "SignedDistanceFields", "SparseArrays", "StableHashTraits", "Statistics", "StatsBase", "StatsFuns", "StructArrays", "TriplotBase", "UnicodeFun"]
+git-tree-sha1 = "27af6be179c711fb916a597b6644fbb5b80becc0"
 uuid = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
-version = "0.20.7"
+version = "0.20.8"
 
 [[deps.MakieCore]]
 deps = ["Observables", "REPL"]
@@ -2774,9 +2791,9 @@ uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
 
 [[deps.MathOptInterface]]
 deps = ["BenchmarkTools", "CodecBzip2", "CodecZlib", "DataStructures", "ForwardDiff", "JSON", "LinearAlgebra", "MutableArithmetics", "NaNMath", "OrderedCollections", "PrecompileTools", "Printf", "SparseArrays", "SpecialFunctions", "Test", "Unicode"]
-git-tree-sha1 = "569a003f93d7c64068d3afaab908d21f67a22cd5"
+git-tree-sha1 = "679c1aec6934d322783bd15db4d18f898653be4f"
 uuid = "b8f27783-ece8-5eb3-8dc8-9495eed66fee"
-version = "1.25.3"
+version = "1.27.0"
 
 [[deps.MathTeXEngine]]
 deps = ["AbstractTrees", "Automa", "DataStructures", "FreeTypeAbstraction", "GeometryBasics", "LaTeXStrings", "REPL", "RelocatableFolders", "UnicodeFun"]
@@ -2787,7 +2804,7 @@ version = "0.5.7"
 [[deps.MbedTLS_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
-version = "2.28.2+0"
+version = "2.28.2+1"
 
 [[deps.Media]]
 deps = ["MacroTools", "Test"]
@@ -2817,7 +2834,7 @@ version = "0.3.4"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2022.10.11"
+version = "2023.1.10"
 
 [[deps.Multisets]]
 git-tree-sha1 = "8d852646862c96e226367ad10c8af56099b4047e"
@@ -2875,7 +2892,7 @@ version = "1.3.5+1"
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
-version = "0.3.21+4"
+version = "0.3.23+4"
 
 [[deps.OpenEXR]]
 deps = ["Colors", "FileIO", "OpenEXR_jll"]
@@ -2892,7 +2909,7 @@ version = "3.1.4+0"
 [[deps.OpenLibm_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "05823500-19ac-5b8b-9628-191a04bc5112"
-version = "0.8.1+0"
+version = "0.8.1+2"
 
 [[deps.OpenSSL_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -2926,7 +2943,7 @@ version = "1.6.3"
 [[deps.PCRE2_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "efcefdf7-47ab-520b-bdef-62a2eaa19f15"
-version = "10.42.0+0"
+version = "10.42.0+1"
 
 [[deps.PDMats]]
 deps = ["LinearAlgebra", "SparseArrays", "SuiteSparse"]
@@ -2991,7 +3008,7 @@ version = "0.42.2+0"
 [[deps.Pkg]]
 deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "Serialization", "TOML", "Tar", "UUIDs", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.9.2"
+version = "1.10.0"
 
 [[deps.PkgVersion]]
 deps = ["Pkg"]
@@ -3001,15 +3018,15 @@ version = "0.3.3"
 
 [[deps.PlotUtils]]
 deps = ["ColorSchemes", "Colors", "Dates", "PrecompileTools", "Printf", "Random", "Reexport", "Statistics"]
-git-tree-sha1 = "862942baf5663da528f66d24996eb6da85218e76"
+git-tree-sha1 = "7b1a9df27f072ac4c9c7cbe5efb198489258d1f5"
 uuid = "995b91a9-d308-5afd-9ec6-746e21dbc043"
-version = "1.4.0"
+version = "1.4.1"
 
 [[deps.PlutoUI]]
 deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
-git-tree-sha1 = "a6783c887ca59ce7e97ed630b74ca1f10aefb74d"
+git-tree-sha1 = "71a22244e352aa8c5f0f2adde4150f62368a3f2e"
 uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-version = "0.7.57"
+version = "0.7.58"
 
 [[deps.PolygonOps]]
 git-tree-sha1 = "77b3d3605fc1cd0b42d95eba87dfcd2bf67d5ff6"
@@ -3043,15 +3060,15 @@ version = "1.2.0"
 
 [[deps.Preferences]]
 deps = ["TOML"]
-git-tree-sha1 = "00805cd429dcb4870060ff49ef443486c262e38e"
+git-tree-sha1 = "9306f6085165d270f7e3db02af26a400d580f5c6"
 uuid = "21216c6a-2e73-6563-6e65-726566657250"
-version = "1.4.1"
+version = "1.4.3"
 
 [[deps.Primes]]
 deps = ["IntegerMathUtils"]
-git-tree-sha1 = "1d05623b5952aed1307bf8b43bec8b8d1ef94b6e"
+git-tree-sha1 = "cb420f77dc474d23ee47ca8d14c90810cafe69e7"
 uuid = "27ebfcd6-29c5-5fa9-bf4b-fb8fc14df3ae"
-version = "0.5.5"
+version = "0.5.6"
 
 [[deps.Printf]]
 deps = ["Unicode"]
@@ -3063,9 +3080,9 @@ uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
 
 [[deps.ProgressMeter]]
 deps = ["Distributed", "Printf"]
-git-tree-sha1 = "00099623ffee15972c16111bcf84c58a0051257c"
+git-tree-sha1 = "763a8ceb07833dd51bb9e3bbca372de32c0605ad"
 uuid = "92933f4c-e287-5a05-a399-4b506db050ca"
-version = "1.9.0"
+version = "1.10.0"
 
 [[deps.Psychro]]
 deps = ["Unitful"]
@@ -3090,7 +3107,7 @@ deps = ["InteractiveUtils", "Markdown", "Sockets", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 
 [[deps.Random]]
-deps = ["SHA", "Serialization"]
+deps = ["SHA"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
 [[deps.RangeArrays]]
@@ -3267,6 +3284,7 @@ version = "1.2.1"
 [[deps.SparseArrays]]
 deps = ["Libdl", "LinearAlgebra", "Random", "Serialization", "SuiteSparse_jll"]
 uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+version = "1.10.0"
 
 [[deps.SpecialFunctions]]
 deps = ["IrrationalConstants", "LogExpFunctions", "OpenLibm_jll", "OpenSpecFun_jll"]
@@ -3292,9 +3310,9 @@ version = "0.1.1"
 
 [[deps.StaticArrays]]
 deps = ["LinearAlgebra", "PrecompileTools", "Random", "StaticArraysCore"]
-git-tree-sha1 = "7b0e9c14c624e435076d19aea1e5cbdec2b9ca37"
+git-tree-sha1 = "bf074c045d3d5ffd956fa0a461da38a44685d6b2"
 uuid = "90137ffa-7385-5640-81b9-e52037218182"
-version = "1.9.2"
+version = "1.9.3"
 weakdeps = ["ChainRulesCore", "Statistics"]
 
     [deps.StaticArrays.extensions]
@@ -3309,7 +3327,7 @@ version = "1.4.2"
 [[deps.Statistics]]
 deps = ["LinearAlgebra", "SparseArrays"]
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
-version = "1.9.0"
+version = "1.10.0"
 
 [[deps.StatsAPI]]
 deps = ["LinearAlgebra"]
@@ -3341,19 +3359,31 @@ uuid = "43dc94dd-f011-5c5d-8ab2-5073432dc0ba"
 version = "1.4.1"
 
 [[deps.StructArrays]]
-deps = ["Adapt", "ConstructionBase", "DataAPI", "GPUArraysCore", "StaticArraysCore", "Tables"]
-git-tree-sha1 = "1b0b1205a56dc288b71b1961d48e351520702e24"
+deps = ["ConstructionBase", "DataAPI", "Tables"]
+git-tree-sha1 = "f4dc295e983502292c4c3f951dbb4e985e35b3be"
 uuid = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
-version = "0.6.17"
+version = "0.6.18"
+
+    [deps.StructArrays.extensions]
+    StructArraysAdaptExt = "Adapt"
+    StructArraysGPUArraysCoreExt = "GPUArraysCore"
+    StructArraysSparseArraysExt = "SparseArrays"
+    StructArraysStaticArraysExt = "StaticArrays"
+
+    [deps.StructArrays.weakdeps]
+    Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
+    GPUArraysCore = "46192b85-c4d5-4398-a991-12ede77f4527"
+    SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
 [[deps.SuiteSparse]]
 deps = ["Libdl", "LinearAlgebra", "Serialization", "SparseArrays"]
 uuid = "4607b0f0-06f3-5cda-b6b1-a6196a1729e9"
 
 [[deps.SuiteSparse_jll]]
-deps = ["Artifacts", "Libdl", "Pkg", "libblastrampoline_jll"]
+deps = ["Artifacts", "Libdl", "libblastrampoline_jll"]
 uuid = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
-version = "5.10.1+6"
+version = "7.2.1+1"
 
 [[deps.TOML]]
 deps = ["Dates"]
@@ -3394,9 +3424,9 @@ uuid = "731e570b-9d59-4bfa-96dc-6df516fadf69"
 version = "0.6.8"
 
 [[deps.TranscodingStreams]]
-git-tree-sha1 = "54194d92959d8ebaa8e26227dbe3cdefcdcd594f"
+git-tree-sha1 = "3caa21522e7efac1ba21834a03734c57b4611c7e"
 uuid = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
-version = "0.10.3"
+version = "0.10.4"
 weakdeps = ["Random", "Test"]
 
     [deps.TranscodingStreams.extensions]
@@ -3459,9 +3489,9 @@ version = "1.0.0"
 
 [[deps.XML2_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Libiconv_jll", "Zlib_jll"]
-git-tree-sha1 = "801cbe47eae69adc50f36c3caec4758d2650741b"
+git-tree-sha1 = "07e470dabc5a6a4254ffebc29a1b3fc01464e105"
 uuid = "02c8fc9c-b97f-50b9-bbe4-9be30ff0a78a"
-version = "2.12.2+0"
+version = "2.12.5+0"
 
 [[deps.XSLT_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Libgcrypt_jll", "Libgpg_error_jll", "Libiconv_jll", "Pkg", "XML2_jll", "Zlib_jll"]
@@ -3471,9 +3501,9 @@ version = "1.1.34+0"
 
 [[deps.XZ_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "ac88fb95ae6447c8dda6a5503f3bafd496ae8632"
+git-tree-sha1 = "37195dcb94a5970397ad425b95a9a26d0befce3a"
 uuid = "ffd25f8a-64ca-5728-b0f7-c24cf3aae800"
-version = "5.4.6+0"
+version = "5.6.0+0"
 
 [[deps.Xorg_libX11_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Xorg_libxcb_jll", "Xorg_xtrans_jll"]
@@ -3526,7 +3556,7 @@ version = "1.5.0+0"
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
-version = "1.2.13+0"
+version = "1.2.13+1"
 
 [[deps.Zstd_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -3561,7 +3591,7 @@ version = "0.15.1+0"
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
-version = "5.8.0+0"
+version = "5.8.0+1"
 
 [[deps.libfdk_aac_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -3571,9 +3601,9 @@ version = "2.0.2+0"
 
 [[deps.libpng_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Zlib_jll"]
-git-tree-sha1 = "873b4f805771d3e4bafe63af759a26ea8ca84d14"
+git-tree-sha1 = "1ea2ebe8ffa31f9c324e8c1d6e86b4165b84a024"
 uuid = "b53b4c65-9356-5827-b1ea-8c7a1a84506f"
-version = "1.6.42+0"
+version = "1.6.43+0"
 
 [[deps.libsixel_jll]]
 deps = ["Artifacts", "JLLWrappers", "JpegTurbo_jll", "Libdl", "Pkg", "libpng_jll"]
@@ -3590,12 +3620,12 @@ version = "1.3.7+1"
 [[deps.nghttp2_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
-version = "1.48.0+0"
+version = "1.52.0+1"
 
 [[deps.p7zip_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-version = "17.4.0+0"
+version = "17.4.0+2"
 
 [[deps.x264_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -3611,68 +3641,57 @@ version = "3.5.0+0"
 """
 
 # ╔═╡ Cell order:
-# ╟─d4189065-6aab-4920-bd21-22bc69f92ad5
-# ╟─014e90f8-e931-4844-840a-7d76948c23a5
-# ╟─1d29e311-c5d8-4dfe-9074-fccae14efadd
-# ╟─40b20385-ed8b-4ba9-9849-cedbbac4bb22
-# ╠═b4d09b13-d4cd-483f-81b4-60d6eb722149
-# ╟─076e0734-a39c-4f60-ae95-fe62e8e61076
-# ╟─259238bf-7fd4-487c-999f-f864ebe472f6
-# ╠═2d97cef6-0808-4edb-aee4-156da381d805
-# ╠═1e098167-c5fc-4d79-889c-90b171feb803
-# ╟─7666c8a3-1200-4827-809c-18e383501b70
-# ╟─476cdc10-f435-4af5-af77-fe107edd3580
-# ╟─f0b08fbb-3226-4a43-b922-419d3d357482
-# ╟─7e3fde2d-2a78-408f-bcae-ab96ca880711
-# ╟─ed994cb4-553d-4ec5-b36d-fa30d46373c8
-# ╟─6491e060-cf27-11ee-14d2-bbfe55d17ee8
-# ╟─6ecea6d3-18ea-484e-8a4f-b78a88589917
-# ╟─b9db4ddc-cea5-405e-99ea-5b7a025fcfa4
-# ╟─ff0eefe3-9285-47ab-9945-6a11bc07275c
-# ╠═02e91a7a-9374-45f5-a1d2-41ff2b604aa2
-# ╟─599ab13f-0f72-41da-bd49-f8b0e92f981c
-# ╟─5a2187ea-bc66-470f-8dfb-754e01afb485
-# ╟─ac1b87dd-d51b-4f94-8ae6-d5aaba10f365
-# ╟─5fb0b8ea-0d30-4496-9f66-dc70dfed94ed
-# ╟─233e95d3-9611-4fdf-b12f-3ce43434866d
-# ╟─e1c94f16-9d56-4965-86d1-abfc19195b87
-# ╟─e0202175-5b36-45ed-95fa-95016290bdf2
-# ╠═d3fee54d-4fdf-4703-9bd6-911a73a07f41
-# ╟─59f5d9e0-12b9-49a5-9dee-b4e9e9a4b010
-# ╟─c4e10dbe-9f02-4156-aeba-8b3a4cdd4761
-# ╟─8358c1f0-3a5f-401a-9755-06e8a70acda9
-# ╟─e6f4b40c-a3b4-4da7-a252-085724901e8d
-# ╟─71c95469-a9d8-4bc0-919f-c56228e72264
-# ╟─31717fa3-09dd-4ebc-8a08-f485b5216b11
-# ╟─c53fa179-986b-46b4-8c88-ccdb4378e99f
-# ╟─40fc5c9c-b90e-4c15-b290-46dd355f62cc
-# ╟─fb68d662-30ed-4191-a634-b34192210bf0
-# ╠═b03e91ec-40b9-441c-bca5-e7d3e7e6f88a
-# ╟─212b9dad-ba96-4c1f-9e2f-d490d56d4f97
-# ╟─f344ac3d-d199-4f22-a7a3-6ca9de6448e3
-# ╟─f1623dc0-3901-41aa-b398-15ca529c813e
-# ╟─dbfbd233-d64d-4d8e-96e6-b88e24eb2726
-# ╟─ab7c84de-c9fe-4c7e-b6de-4f2b1c108feb
-# ╟─95025c4c-73ac-4bc3-b098-f737f8a54dbb
-# ╟─2b8550b5-e6ea-45ea-adaa-89fe9c5adc12
-# ╟─5c204dd1-3c56-4942-8cd6-f1b894f114e8
-# ╟─6bf34eae-5ba7-431d-a2a4-c184ce5e46ec
-# ╟─973aa28a-71bb-4149-8265-6a6ccbdf414c
-# ╟─b99a067e-e166-4e75-a538-5c6d5334a25e
-# ╟─043062dc-dfda-4c33-a35f-95cd2a2c78a0
-# ╟─04388a90-7355-4451-a8af-b030b600ad3f
-# ╟─ce400b07-d495-4e66-942a-f3a25570e747
-# ╟─59a8f15c-552e-47f7-9c33-5ca7ee340874
-# ╟─1a778f56-925f-4422-9b6a-56c7f29d4a4b
-# ╟─e27b81f1-0f3d-4825-b033-81c49778c962
-# ╟─f1ef5fc2-1b21-4f10-9966-faa31e413735
-# ╟─57155236-83b5-41cb-b404-533ce23a86c3
-# ╟─855e9382-1edc-4865-9c13-19b52631fdd2
-# ╟─694b2733-2715-45b9-a153-4addc1f88e52
-# ╟─c3abf986-a852-480d-a624-18d7631edcc7
-# ╟─80a047ba-3469-4598-b000-d97ea9c75753
-# ╟─d2129783-2048-420b-9634-e46d741ee1d2
-# ╟─858981f9-ea7a-4413-ab89-00d8987eb7d3
-# ╟─ffc9b07f-9639-4c77-a999-03807e3a520a
+# ╟─b7a018ef-3fb7-42b7-8765-375d9437b0b7
+# ╟─f03d3f68-27fa-4255-8cb3-c6ae4ebdb303
+# ╟─4f04674f-ec72-41ef-8395-8fa7bd249a94
+# ╟─c50940b2-bb86-4640-b333-f71874d1ab6f
+# ╟─8e57eefe-2115-40d9-bb6e-eadadbdbe762
+# ╟─13c18387-5dc4-4d60-97bb-04377e724431
+# ╟─922da43b-46a6-4335-957d-9d2637d35679
+# ╟─1f6c5710-9b8c-43b9-bba4-8248aedf63f8
+# ╟─13f9fbe4-4f5c-4059-819e-28f8ae023c0a
+# ╟─2f0f105d-ba0c-467f-87f7-664316976be5
+# ╟─c5c0fcac-c4ab-4ec0-baf6-4ec57f38833c
+# ╟─23eb1f32-8d85-4f2c-a2fb-ebed13797703
+# ╟─0610abd3-0bd4-429d-9544-ba76a9b66dd6
+# ╟─27ba243d-b2b7-4952-b490-b44a9ef6f1c4
+# ╟─8682da47-4589-40c6-8bb0-b723abe27bbb
+# ╟─33181610-dcb2-11ee-004b-63c218681aa3
+# ╟─d61e2dd1-eea2-45b7-9eca-4374d8e540ce
+# ╟─3aec0b9b-5aa2-4f47-baf3-ac0593c5fe6d
+# ╟─f50a28c1-ee29-4c03-a7cb-a7f0f7a89f90
+# ╟─98e5e20c-21a3-46f1-bb43-e4fcb173aef2
+# ╟─5dc4f8ec-3eca-4c35-ae47-0fdcc42c63e2
+# ╟─30b7fff5-d417-4f15-9fa3-f623f288522f
+# ╟─ae42fc02-d9a0-4432-8710-4242881ad3d9
+# ╟─99dcc167-9819-4709-a29b-6a188ccd8005
+# ╟─69827035-a90b-4b67-945b-859331d0b772
+# ╟─4a440365-a6ee-4f68-95ba-3a842d557a99
+# ╟─0c4161dd-43a8-4819-86aa-e8f1e4d44adc
+# ╟─ee845e93-d778-4140-8be2-6b75b75a46e2
+# ╟─987a1327-7c74-4629-98df-f7a1af80abfa
+# ╟─e5f1199b-408a-41ad-89fd-eb4f836d6704
+# ╟─cf37b478-26bc-4e01-bc1b-2f712eef3c66
+# ╟─4d424005-c282-4e63-9704-e892a8d7d42f
+# ╟─c5f5a18b-3b2d-4092-ac4f-5078c7b55cac
+# ╟─79ca119f-818c-49cc-a855-de761dfb5be8
+# ╟─9b5eec59-1132-4b04-8841-d8801bf09404
+# ╟─d6b3e74b-bbd5-4b8b-a7bc-81c3681bdd27
+# ╟─3e63f6bf-fb4d-45b6-8f65-9c82040310bb
+# ╟─e27573fa-3aa4-439c-ac2f-663612cf7ceb
+# ╟─85f3cd13-8e67-46a2-9f64-2103e20f901e
+# ╟─12a3eb03-06b5-4722-8d4a-259f2adf40dc
+# ╟─061700b1-a904-459d-9545-2c43d709bdf9
+# ╟─2a95a7b3-bbde-49bf-96e8-2c19e7a145bc
+# ╟─ed66faa6-092c-46b5-b519-2465405b755a
+# ╟─a4c62e2e-004e-46f1-aa91-c95e10d76e9d
+# ╟─3565e485-b361-4c50-8640-d9011adb3816
+# ╟─bf0f0ccb-d327-4d11-8bcc-5d9d526a3eb1
+# ╟─6980e81b-b5e0-4179-9cba-9a35aa1113bb
+# ╟─6bc03d9b-c794-434e-8453-b01316c503af
+# ╟─088a0e4d-ba74-423d-8747-5d36b1689ed1
+# ╟─41752cc8-0409-43cc-9325-4b8a4d75eaea
+# ╟─b23d604a-0f34-42df-91c7-19a525343646
+# ╟─bf8e1963-5852-4ca1-bfb1-79000f6e2ea0
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

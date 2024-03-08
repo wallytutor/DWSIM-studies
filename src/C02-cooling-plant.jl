@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.38
+# v0.19.32
 
 using Markdown
 using InteractiveUtils
@@ -59,6 +59,12 @@ md"""
 
 Performed under air cooling conditions [^2].
 """
+
+# ╔═╡ f5499bbb-9a5b-43ab-adab-d15ebbe7311f
+@bind reset1 PlutoUI.Button("Reset values")
+
+# ╔═╡ a065dad4-f32f-4b2c-8be1-dbb9d4c9aabc
+@bind reset2 PlutoUI.Button("Reset values")
 
 # ╔═╡ 27ba243d-b2b7-4952-b490-b44a9ef6f1c4
 md"""
@@ -1480,22 +1486,29 @@ let
 end
 
 # ╔═╡ 2f0f105d-ba0c-467f-87f7-664316976be5
+let
+reset1
 md"""
 ### Air cooling simulator
+
+
 
 | Quantity              | Value                                          | Unit |
 |----------------------:|:-----------------------------------------------|:----:|
 Use leak % below [^T]   | $(@bind useϕ1 PlutoUI.CheckBox(default=false)) |
-Leak percentage [^T]    | $(@bind ϕleaks1    slider(0.0:0.5:100.0, 31.5))| [%]
+Leak percentage [^T]    | $(@bind ϕleaks1    slider(0:0.5:100, 31.5))    | [%]
 Separator eff. [^T]     | $(@bind ηsep1      slider(45:0.05:65, 47.65))  | [%]
-Environment temp. [^M]  | $(@bind T_env1     slider(-2.0:0.5:45.0, 5.0)) | [°C]
+Environment temp. [^M]  | $(@bind T_env1     slider(-2.0:0.5:45, 5.0))   | [°C]
+Cooler feed rate [^C]   | $(@bind q̇_cooler1  slider(50:5:1000, 75))      | [Nm³/h]
 Cooler end temp. [^M]   | $(@bind T_oc1      slider(50:1:100, 93))       | [°C]
 Milling power [^C]      | $(@bind power1     slider(90:1:120, 107))      | [kW]
 Clinker feed rate [^C]  | $(@bind ṁ_clinker1 slider(450:10:900, 820))    | [kg/h]
-Crusher air flow [^C]   | $(@bind q̇_cru_air1 slider(1600:10:2500, 1881)) | Nm³/h
-Separator air flow [^C] | $(@bind q̇_sep_air1 slider(300:10:800, 431))    | Nm³/h
-Total air flow [^C]     | $(@bind q̇_tot_air1 slider(2500:50:4000, 3600)) | Nm³/h
+Crusher air flow [^C]   | $(@bind q̇_cru_air1 slider(1600:10:2500, 1881)) | [Nm³/h]
+Separator air flow [^C] | $(@bind q̇_sep_air1 slider(300:10:800, 431))    | [Nm³/h]
+Total air flow [^C]     | $(@bind q̇_tot_air1 slider(2500:50:4000, 3600)) | [Nm³/h]
 """
+
+end
 
 # ╔═╡ c5c0fcac-c4ab-4ec0-baf6-4ec57f38833c
 let
@@ -1520,7 +1533,7 @@ let
         T_env         = T_env1 * u"°C",
 
         ṁ_clinker     = ṁ_clinker1 * u"kg/hr",
-        ṁ_cooler      = nm3h_to_kg_h(Q̇cool) * u"kg/hr",
+        ṁ_cooler      = nm3h_to_kg_h(q̇_cooler1) * u"kg/hr",
         ṁ_cru_air     = nm3h_to_kg_h(q̇_cru_air1) * u"kg/hr",
         ṁ_sep_air     = nm3h_to_kg_h(q̇_sep_air1) * u"kg/hr",
         ṁ_par_air     = nm3h_to_kg_h(q̇_par_air1) * u"kg/hr",
@@ -1541,6 +1554,9 @@ let
 end
 
 # ╔═╡ 23eb1f32-8d85-4f2c-a2fb-ebed13797703
+let
+reset2
+
 md"""
 ### Water cooling simulator
 
@@ -1550,15 +1566,16 @@ Use leak % below [^T]   | $(@bind useϕ2 PlutoUI.CheckBox(default=false)) |
 Leak percentage [^T]    | $(@bind ϕleaks2    slider(0.0:0.5:100.0, 31.5))| [%]
 Separator eff. [^T]     | $(@bind ηsep2      slider(45:0.05:65, 50.8))   | [%]
 Environment temp. [^M]  | $(@bind T_env2     slider(-2.0:0.5:45.0, 5.0)) | [°C]
-Cooler feed rate [^C]   | $(@bind ṁ_cooler2  slider(0.5:0.1:2.0, 1.3))   | [m/h]
+Cooler feed rate [^C]   | $(@bind ṁ_cooler2  slider(0.5:0.1:2.0, 1.3))   | [m³/h]
 Cooler start temp. [^M] | $(@bind T_ic2      slider(5:1:40, 20))         | [°C]
 Cooler end temp. [^M]   | $(@bind T_oc2      slider(30:1:70, 55))        | [°C]
 Milling power [^C]      | $(@bind power2     slider(90:1:120, 105))      | [kW]
 Clinker feed rate [^C]  | $(@bind ṁ_clinker2 slider(450:10:900, 550))    | [kg/h]
-Crusher air flow [^C]   | $(@bind q̇_cru_air2 slider(1600:10:2500, 2232)) | Nm³/h
-Separator air flow [^C] | $(@bind q̇_sep_air2 slider(300:10:800, 431))    | Nm³/h
-Total air flow [^C]     | $(@bind q̇_tot_air2 slider(2500:50:4000, 3500)) | Nm³/h
+Crusher air flow [^C]   | $(@bind q̇_cru_air2 slider(1600:10:2500, 2232)) | [Nm³/h]
+Separator air flow [^C] | $(@bind q̇_sep_air2 slider(300:10:800, 431))    | [Nm³/h]
+Total air flow [^C]     | $(@bind q̇_tot_air2 slider(2500:50:4000, 3500)) | [Nm³/h]
 """
+end
 
 # ╔═╡ 0610abd3-0bd4-429d-9544-ba76a9b66dd6
 let
@@ -1844,7 +1861,7 @@ Unitful = "~1.19.0"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.1"
+julia_version = "1.9.3"
 manifest_format = "2.0"
 project_hash = "9dc21d347d4e0dafa61db1b16e09c7ab6e3076e1"
 
@@ -1918,16 +1935,15 @@ version = "1.1.1"
 
 [[deps.ArrayInterface]]
 deps = ["Adapt", "LinearAlgebra", "Requires", "SparseArrays", "SuiteSparse"]
-git-tree-sha1 = "881e43f1aa014a6f75c8fc0847860e00a1500846"
+git-tree-sha1 = "c5aeb516a84459e0318a02507d2261edad97eb75"
 uuid = "4fba245c-0d91-5ea0-9b3e-6abc04ee57a9"
-version = "7.8.0"
+version = "7.7.1"
 
     [deps.ArrayInterface.extensions]
     ArrayInterfaceBandedMatricesExt = "BandedMatrices"
     ArrayInterfaceBlockBandedMatricesExt = "BlockBandedMatrices"
     ArrayInterfaceCUDAExt = "CUDA"
     ArrayInterfaceGPUArraysCoreExt = "GPUArraysCore"
-    ArrayInterfaceReverseDiffExt = "ReverseDiff"
     ArrayInterfaceStaticArraysCoreExt = "StaticArraysCore"
     ArrayInterfaceTrackerExt = "Tracker"
 
@@ -1936,7 +1952,6 @@ version = "7.8.0"
     BlockBandedMatrices = "ffab5731-97b5-5995-9138-79e8c1846df0"
     CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
     GPUArraysCore = "46192b85-c4d5-4398-a991-12ede77f4527"
-    ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267"
     StaticArraysCore = "1e83bf80-4336-4d27-bf5d-d5a4f845583c"
     Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c"
 
@@ -2099,7 +2114,7 @@ weakdeps = ["Dates", "LinearAlgebra"]
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.1.0+0"
+version = "1.0.5+0"
 
 [[deps.CompositionsBase]]
 git-tree-sha1 = "802bb88cd69dfd1509f6670416bd4434015693ad"
@@ -2632,26 +2647,21 @@ version = "0.3.1"
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
 uuid = "b27032c2-a3e7-50c8-80cd-2d36dbcbfd21"
-version = "0.6.4"
+version = "0.6.3"
 
 [[deps.LibCURL_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll", "Zlib_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "8.4.0+0"
+version = "7.84.0+0"
 
 [[deps.LibGit2]]
-deps = ["Base64", "LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
+deps = ["Base64", "NetworkOptions", "Printf", "SHA"]
 uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
-
-[[deps.LibGit2_jll]]
-deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll"]
-uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
-version = "1.6.4+0"
 
 [[deps.LibSSH2_jll]]
 deps = ["Artifacts", "Libdl", "MbedTLS_jll"]
 uuid = "29816b5a-b9ab-546f-933c-edad1886dfa8"
-version = "1.11.0+1"
+version = "1.10.2+0"
 
 [[deps.Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
@@ -2804,7 +2814,7 @@ version = "0.5.7"
 [[deps.MbedTLS_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
-version = "2.28.2+1"
+version = "2.28.2+0"
 
 [[deps.Media]]
 deps = ["MacroTools", "Test"]
@@ -2834,7 +2844,7 @@ version = "0.3.4"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2023.1.10"
+version = "2022.10.11"
 
 [[deps.Multisets]]
 git-tree-sha1 = "8d852646862c96e226367ad10c8af56099b4047e"
@@ -2892,7 +2902,7 @@ version = "1.3.5+1"
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
-version = "0.3.23+4"
+version = "0.3.21+4"
 
 [[deps.OpenEXR]]
 deps = ["Colors", "FileIO", "OpenEXR_jll"]
@@ -2909,7 +2919,7 @@ version = "3.1.4+0"
 [[deps.OpenLibm_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "05823500-19ac-5b8b-9628-191a04bc5112"
-version = "0.8.1+2"
+version = "0.8.1+0"
 
 [[deps.OpenSSL_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -2943,7 +2953,7 @@ version = "1.6.3"
 [[deps.PCRE2_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "efcefdf7-47ab-520b-bdef-62a2eaa19f15"
-version = "10.42.0+1"
+version = "10.42.0+0"
 
 [[deps.PDMats]]
 deps = ["LinearAlgebra", "SparseArrays", "SuiteSparse"]
@@ -3008,7 +3018,7 @@ version = "0.42.2+0"
 [[deps.Pkg]]
 deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "Serialization", "TOML", "Tar", "UUIDs", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.10.0"
+version = "1.9.2"
 
 [[deps.PkgVersion]]
 deps = ["Pkg"]
@@ -3107,7 +3117,7 @@ deps = ["InteractiveUtils", "Markdown", "Sockets", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 
 [[deps.Random]]
-deps = ["SHA"]
+deps = ["SHA", "Serialization"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
 [[deps.RangeArrays]]
@@ -3284,7 +3294,6 @@ version = "1.2.1"
 [[deps.SparseArrays]]
 deps = ["Libdl", "LinearAlgebra", "Random", "Serialization", "SuiteSparse_jll"]
 uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
-version = "1.10.0"
 
 [[deps.SpecialFunctions]]
 deps = ["IrrationalConstants", "LogExpFunctions", "OpenLibm_jll", "OpenSpecFun_jll"]
@@ -3327,7 +3336,7 @@ version = "1.4.2"
 [[deps.Statistics]]
 deps = ["LinearAlgebra", "SparseArrays"]
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
-version = "1.10.0"
+version = "1.9.0"
 
 [[deps.StatsAPI]]
 deps = ["LinearAlgebra"]
@@ -3381,9 +3390,9 @@ deps = ["Libdl", "LinearAlgebra", "Serialization", "SparseArrays"]
 uuid = "4607b0f0-06f3-5cda-b6b1-a6196a1729e9"
 
 [[deps.SuiteSparse_jll]]
-deps = ["Artifacts", "Libdl", "libblastrampoline_jll"]
+deps = ["Artifacts", "Libdl", "Pkg", "libblastrampoline_jll"]
 uuid = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
-version = "7.2.1+1"
+version = "5.10.1+6"
 
 [[deps.TOML]]
 deps = ["Dates"]
@@ -3556,7 +3565,7 @@ version = "1.5.0+0"
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
-version = "1.2.13+1"
+version = "1.2.13+0"
 
 [[deps.Zstd_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -3591,7 +3600,7 @@ version = "0.15.1+0"
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
-version = "5.8.0+1"
+version = "5.8.0+0"
 
 [[deps.libfdk_aac_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -3620,12 +3629,12 @@ version = "1.3.7+1"
 [[deps.nghttp2_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
-version = "1.52.0+1"
+version = "1.48.0+0"
 
 [[deps.p7zip_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-version = "17.4.0+2"
+version = "17.4.0+0"
 
 [[deps.x264_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -3651,8 +3660,10 @@ version = "3.5.0+0"
 # ╟─1f6c5710-9b8c-43b9-bba4-8248aedf63f8
 # ╟─13f9fbe4-4f5c-4059-819e-28f8ae023c0a
 # ╟─2f0f105d-ba0c-467f-87f7-664316976be5
+# ╟─f5499bbb-9a5b-43ab-adab-d15ebbe7311f
 # ╟─c5c0fcac-c4ab-4ec0-baf6-4ec57f38833c
 # ╟─23eb1f32-8d85-4f2c-a2fb-ebed13797703
+# ╟─a065dad4-f32f-4b2c-8be1-dbb9d4c9aabc
 # ╟─0610abd3-0bd4-429d-9544-ba76a9b66dd6
 # ╟─27ba243d-b2b7-4952-b490-b44a9ef6f1c4
 # ╟─8682da47-4589-40c6-8bb0-b723abe27bbb

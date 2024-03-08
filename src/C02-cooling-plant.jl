@@ -797,6 +797,18 @@ begin
             transport_sep = nothing
             transport_rec = nothing
 
+			# Tentative
+			if !isnothing(htc_cru)
+				_, T_out_cool, T_out_crush = cooled_crushing(
+					product  = meal_stream + recirc_stream,
+					coolant  = cooling_stream,
+					power    = milling_power,
+					temp_out = T_out_cool,
+					temp_cru = T_out_crush, 
+					glob_htc = nothing
+				)
+			end
+			
             while itercount <= solver.max_iter
 				# Mix meal and recirculation
 				product = meal_stream + recirc_stream
@@ -930,7 +942,7 @@ begin
 
     enthalpy(mat::Water, T, P) = 4182.0T
 
-    enthalpy(mat::Air, T, P) =  1000.0T # mat.h(T)
+    enthalpy(mat::Air, T, P) = mat.h(T)
 
     function enthalpy(pipe::StreamPipeline, T, P, Y)
         return sum(Y .* enthalpy.(pipe.materials, T, P))
@@ -1142,14 +1154,6 @@ begin
         Q̇7 + Q̇9
     end
 end;
-
-# ╔═╡ 985c57bb-840d-4a69-b6b0-08f3275cded4
-let
-	air = Air()
-	c1 = enthalpy(air, TREF, 1) / TREF
-	c2 = 0.001(enthalpy(air, TREF+100, 1) - c1) / (TREF+100)
-	c1, c2
-end
 
 # ╔═╡ 3aec0b9b-5aa2-4f47-baf3-ac0593c5fe6d
 begin
@@ -3759,7 +3763,6 @@ version = "3.5.0+0"
 # ╟─8682da47-4589-40c6-8bb0-b723abe27bbb
 # ╟─33181610-dcb2-11ee-004b-63c218681aa3
 # ╠═d61e2dd1-eea2-45b7-9eca-4374d8e540ce
-# ╠═985c57bb-840d-4a69-b6b0-08f3275cded4
 # ╟─3aec0b9b-5aa2-4f47-baf3-ac0593c5fe6d
 # ╟─f50a28c1-ee29-4c03-a7cb-a7f0f7a89f90
 # ╟─98e5e20c-21a3-46f1-bb43-e4fcb173aef2

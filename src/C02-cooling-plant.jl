@@ -292,35 +292,6 @@ begin
         end
     end
 
-
-    "Manage use of `TransportPipeline` with different models."
-    function transport_pipe(product, temp_out, temp_env, glob_htc)
-        verbose = false
-
-        function target_pipeline()
-            return TransportPipeline(; model = :TARGET_EXIT_TEMP,
-                product, temp_out, verbose)
-        end
-
-        function simul_pipeline()
-            temp_out = isnothing(temp_out) ? product.T : temp_out
-
-            pipe = TransportPipeline(; model = :USING_GLOBAL_HTC,
-                product, temp_out, glob_htc, temp_env, verbose)
-
-            temp_out = pipe.product.T
-            return pipe, temp_out
-        end
-
-        pipe = if isnothing(glob_htc)
-            target_pipeline()
-        else
-            pipe, temp_out = simul_pipeline()
-            pipe
-        end
-        return pipe, temp_out
-    end
-
     """ Represents a solids separator with efficiency η.
 
     To-do's
@@ -388,10 +359,8 @@ begin
       `temp_out`. Product temperature is updated through an `EnergyStream` \
       built with energy exchange computed through `exchanged_heat`, so that \
       numerical value can be slightly different from target value.
-
-    To-do's
-    -------
-    - Implement heat exchange coefficient so that the model can be used in *simulation*.
+    1. `:USING_GLOBAL_HTC` makes use of a global heat transfer coefficient \
+      to evaluate heat flux across the cooling stream.
 
     Attributes
     ----------
@@ -414,7 +383,7 @@ begin
         loss::EnergyStream
 
         "Global heat transfer coefficient [W/K]."
-        globalhtc::Float64
+        globalhtc::Union{Nothing, Float64}
 
         function CooledCrushingMill(;
                 product,
@@ -431,7 +400,8 @@ begin
             Δq = 0.0
             loss = EnergyStream(Δq)
             meal = product
-
+			ghtc = nothing
+			
             ##########
             # MODEL
             ##########
@@ -447,6 +417,27 @@ begin
                 product += power - loss
                 coolant += loss
             end
+
+			if model == :USING_GLOBAL_HTC
+                # Compute enthalpy change with coolant.
+                T∞ = 0.5*(kwargs[:temp_out] + coolant.T)
+                T₂ = 0.5*(kwargs[:temp_cru] + product.T)
+				ghtc = kwargs[:glob_htc]
+
+				# TODO add losses to environment through shell like in:
+				# 10.45*(T_ext - 0.5*(kwargs[:temp_env] + coolant.T))
+				
+				# The value must be the absolute intake by the coolant
+				# thus a minus sign in front of it.
+                Δq = -ghtc * (T∞ - T₂)
+
+                # Stream of energy to correct system temperature.
+                loss = EnergyStream(Δq)
+
+                # Correct energy in both streams.
+                product += power - loss
+                coolant += loss
+			end
 
             ##########
             # POST
@@ -471,12 +462,75 @@ begin
             # NEW
             ##########
 
-            globalhtc = -1.0
-
-            return new(meal, product, coolant, power, loss, globalhtc)
+            return new(meal, product, coolant, power, loss, ghtc)
         end
     end
 
+    ##############################
+    # Model options managers
+    ##############################
+
+    "Manage use of `TransportPipeline` with different models."
+    function transport_pipe(product, temp_out, temp_env, glob_htc)
+        verbose = false
+
+        function target_pipeline()
+            return TransportPipeline(; model = :TARGET_EXIT_TEMP, verbose,
+                product, temp_out)
+        end
+
+        function simul_pipeline()
+            temp_out = isnothing(temp_out) ? product.T : temp_out
+
+            pipe = TransportPipeline(; model = :USING_GLOBAL_HTC, verbose,
+                product, temp_out, glob_htc, temp_env)
+
+            temp_out = pipe.product.T
+            return pipe, temp_out
+        end
+
+        pipe = isnothing(glob_htc) ? target_pipeline() : let
+            pipe, temp_out = simul_pipeline()
+            pipe
+        end
+
+        return pipe, temp_out
+    end
+	
+    "Manage use of `CooledCrushingMill` with different models."
+    function cooled_crushing(; product, coolant, power, temp_out, temp_cru,
+	                           glob_htc, α = 1.0e-04)
+        verbose = false
+
+        function target_pipeline()
+            return CooledCrushingMill(; model = :TARGET_COOLANT_TEMP, verbose,
+            	product, coolant, power, temp_out)
+        end
+
+        function simul_pipeline()
+            temp_out = isnothing(temp_out) ? coolant.T : temp_out
+            temp_cru = isnothing(temp_cru) ? product.T : temp_cru
+			
+            pipe = CooledCrushingMill(; model = :USING_GLOBAL_HTC, verbose, 
+                product, coolant, power, temp_out, glob_htc, temp_cru)
+	
+			temp_out = α * pipe.coolant.T + (1-α) * temp_out
+			temp_cru = α * pipe.product.T + (1-α) * temp_cru
+			
+			# temp_out = pipe.coolant.T
+			# temp_cru = pipe.product.T
+            
+			return pipe, temp_out, temp_cru
+        end
+
+        pipe = isnothing(glob_htc) ? target_pipeline() : let
+            pipe, temp_out, temp_cru = simul_pipeline()
+            pipe
+        end
+
+        return pipe, temp_out, temp_cru
+    end
+	
     ##############################
     # System model
     ##############################
@@ -536,6 +590,9 @@ begin
         "Outlet temperature of product in recirculation (forced mode)."
         T_out_rec::Union{Nothing, Unitful.Quantity{Float64}}
 
+		"Crushing outlet temperature for simulation initial guess."
+        T_out_crush::Union{Nothing, Unitful.Quantity{Float64}}
+
         function CooledCrusherInputs(; T_env, ηseparator, power_crusher, ṁ_cooler,
                 ṁ_clinker, ṁ_cru_air, ṁ_sep_air, ṁ_par_air, ṁ_tot_air, kwargs...)
 
@@ -557,7 +614,8 @@ begin
                 uconvert(u"K", get(kw, :T_in_cool, T_env)),
                 kelvin_or_na(get(kw, :T_out_cool, nothing)),
                 kelvin_or_na(get(kw, :T_in_sep, nothing)),
-                kelvin_or_na(get(kw, :T_out_rec, nothing))
+                kelvin_or_na(get(kw, :T_out_rec, nothing)),
+                kelvin_or_na(get(kw, :T_out_crush, nothing))
             )
         end
     end
@@ -678,7 +736,8 @@ begin
             T_out_cool    = val_or_na(inputs.T_out_cool)
             T_in_sep      = val_or_na(inputs.T_in_sep)
             T_out_rec     = val_or_na(inputs.T_out_rec)
-
+			T_out_crush   = val_or_na(inputs.T_out_crush)
+				
             # Get material streams.
             cooler, Y_cool     = get(kw, :cooler,  (Air(),     [1.0]))
             clinker, Y_clinker = get(kw, :clinker, (Clinker(), [1.0, 0.0]))
@@ -720,7 +779,9 @@ begin
             # XXX Experimental code.
             htc_sep = get(kw, :htc_pipe_sep, nothing)
             htc_rec = get(kw, :htc_pipe_rec, nothing)
-
+            htc_cru = get(kw, :htc_cooling,  nothing)
+			# temp_cru = T_out_crush
+			
             # Premix meal that is not iterated upon.
             meal_stream = clinker_stream
             meal_stream += crusher_air_stream
@@ -737,15 +798,19 @@ begin
             transport_rec = nothing
 
             while itercount <= solver.max_iter
+				# Mix meal and recirculation
+				product = meal_stream + recirc_stream
+				
                 # Add crushing energy and cool down system.
-                crusher = CooledCrushingMill(;
-                    product  = meal_stream + recirc_stream,
-                    coolant  = cooling_stream,
-                    power    = milling_power,
-                    model    = :TARGET_COOLANT_TEMP,
-                    verbose  = false,
-                    temp_out = T_out_cool
-                )
+				# TODO T_out_crush can be actually *computed*!
+				crusher, T_out_cool, T_out_crush = cooled_crushing(
+					product  = product,
+					coolant  = cooling_stream,
+					power    = milling_power,
+					temp_out = T_out_cool,
+					temp_cru = T_out_crush, 
+					glob_htc = htc_cru
+				)
 
                 # Loose some heat in vertical pipeline.
                 rets = transport_pipe(crusher.product, T_in_sep, T_env, htc_sep)
@@ -865,7 +930,7 @@ begin
 
     enthalpy(mat::Water, T, P) = 4182.0T
 
-    enthalpy(mat::Air, T, P) = mat.h(T)
+    enthalpy(mat::Air, T, P) =  1000.0T # mat.h(T)
 
     function enthalpy(pipe::StreamPipeline, T, P, Y)
         return sum(Y .* enthalpy.(pipe.materials, T, P))
@@ -1077,6 +1142,14 @@ begin
         Q̇7 + Q̇9
     end
 end;
+
+# ╔═╡ 985c57bb-840d-4a69-b6b0-08f3275cded4
+let
+	air = Air()
+	c1 = enthalpy(air, TREF, 1) / TREF
+	c2 = 0.001(enthalpy(air, TREF+100, 1) - c1) / (TREF+100)
+	c1, c2
+end
 
 # ╔═╡ 3aec0b9b-5aa2-4f47-baf3-ac0593c5fe6d
 begin
@@ -1477,21 +1550,31 @@ let
         get_pipe_global_htc(pipe, T∞, T₁)
     end
 
+	U_cru =  let
+		pipe = ops.crusher
+		T₁ = pipe.rawmeal.T
+		T∞ = 0.5*(ops.cooling_stream.T + pipe.coolant.T)
+		# @info 2T∞
+		# @info pipe.rawmeal.T + pipe.product.T
+		# T∞ = pipe.coolant.T
+		-get_pipe_global_htc(pipe, T∞, T₁)
+	end
+	
     @info """
     Coefficient estimation for model use in simulation mode:
 
     - From crusher to separator.... $(round(U_sep; digits = 1)) W/K
     - Along recirculation stream... $(round(U_rec; digits = 1)) W/K
+    - Cooling global coefficient... $(round(U_cru; digits = 1)) W/K
     """
 end
 
 # ╔═╡ 2f0f105d-ba0c-467f-87f7-664316976be5
 let
 reset1
+
 md"""
 ### Air cooling simulator
-
-
 
 | Quantity              | Value                                          | Unit |
 |----------------------:|:-----------------------------------------------|:----:|
@@ -1500,14 +1583,12 @@ Leak percentage [^T]    | $(@bind ϕleaks1    slider(0:0.5:100, 31.5))    | [%]
 Separator eff. [^T]     | $(@bind ηsep1      slider(45:0.05:65, 47.65))  | [%]
 Environment temp. [^M]  | $(@bind T_env1     slider(-2.0:0.5:45, 5.0))   | [°C]
 Cooler feed rate [^C]   | $(@bind q̇_cooler1  slider(50:5:1000, 75))      | [Nm³/h]
-Cooler end temp. [^M]   | $(@bind T_oc1      slider(50:1:100, 93))       | [°C]
 Milling power [^C]      | $(@bind power1     slider(90:1:120, 107))      | [kW]
 Clinker feed rate [^C]  | $(@bind ṁ_clinker1 slider(450:10:900, 820))    | [kg/h]
 Crusher air flow [^C]   | $(@bind q̇_cru_air1 slider(1600:10:2500, 1881)) | [Nm³/h]
 Separator air flow [^C] | $(@bind q̇_sep_air1 slider(300:10:800, 431))    | [Nm³/h]
 Total air flow [^C]     | $(@bind q̇_tot_air1 slider(2500:50:4000, 3600)) | [Nm³/h]
 """
-
 end
 
 # ╔═╡ c5c0fcac-c4ab-4ec0-baf6-4ec57f38833c
@@ -1541,11 +1622,17 @@ let
         power_crusher = power1 * u"kW",
 
         T_in_cool     = T_env1 * u"°C",
-        T_out_cool    = T_oc1 * u"°C",
-
+		T_out_cool    = 0 * u"°C",
+		T_out_crush   = 200.0 * u"°C",
+			
         verbose       = true,
+		max_iter      = 10000,
+	
         htc_pipe_sep  = 362.1,
         htc_pipe_rec  = 97.9,
+		# htc_cooling   = 23679.7,
+		htc_cooling   = 20000.0,
+
     )
 
     report(model; show_tree = true)
@@ -1652,6 +1739,9 @@ md"""
 
 # ╔═╡ e5f1199b-408a-41ad-89fd-eb4f836d6704
 @doc "" CooledCrushingMill
+
+# ╔═╡ fe2dde3b-be3c-41fb-839f-2ac9e4426489
+@doc "" cooled_crushing
 
 # ╔═╡ cf37b478-26bc-4e01-bc1b-2f712eef3c66
 md"""
@@ -3668,7 +3758,8 @@ version = "3.5.0+0"
 # ╟─27ba243d-b2b7-4952-b490-b44a9ef6f1c4
 # ╟─8682da47-4589-40c6-8bb0-b723abe27bbb
 # ╟─33181610-dcb2-11ee-004b-63c218681aa3
-# ╟─d61e2dd1-eea2-45b7-9eca-4374d8e540ce
+# ╠═d61e2dd1-eea2-45b7-9eca-4374d8e540ce
+# ╠═985c57bb-840d-4a69-b6b0-08f3275cded4
 # ╟─3aec0b9b-5aa2-4f47-baf3-ac0593c5fe6d
 # ╟─f50a28c1-ee29-4c03-a7cb-a7f0f7a89f90
 # ╟─98e5e20c-21a3-46f1-bb43-e4fcb173aef2
@@ -3681,7 +3772,8 @@ version = "3.5.0+0"
 # ╟─0c4161dd-43a8-4819-86aa-e8f1e4d44adc
 # ╟─ee845e93-d778-4140-8be2-6b75b75a46e2
 # ╟─987a1327-7c74-4629-98df-f7a1af80abfa
-# ╟─e5f1199b-408a-41ad-89fd-eb4f836d6704
+# ╠═e5f1199b-408a-41ad-89fd-eb4f836d6704
+# ╠═fe2dde3b-be3c-41fb-839f-2ac9e4426489
 # ╟─cf37b478-26bc-4e01-bc1b-2f712eef3c66
 # ╟─4d424005-c282-4e63-9704-e892a8d7d42f
 # ╟─c5f5a18b-3b2d-4092-ac4f-5078c7b55cac

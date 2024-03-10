@@ -925,7 +925,7 @@ end
 # density()
 ##############################
 
-density(mat::AbstractMaterial, T, P) = error("Not implemented")
+# density(mat::AbstractMaterial, T, P) = error("Not implemented")
 
 density(mat::Clinker, T, P) = mat.ρ
 
@@ -941,7 +941,7 @@ density(mat::Air, T, P) = (P * mat.M̄) / (RGAS * T)
 
 # TODO consider using clamp()
     
-enthalpy(mat::AbstractMaterial, pars...) = error("Not implemented")
+# enthalpy(mat::AbstractMaterial, pars...) = error("Not implemented")
 
 enthalpy(mat::Clinker, T, P) = mat.h(T)
 
@@ -1100,35 +1100,67 @@ end
 end
 
 # ╔═╡ 5569ce89-9a36-4dd1-acf8-f7a1a4fbf556
-let
-    prod = StreamPipeline([Clinker()])
+begin
+    struct Solid <: AbstractSolidMaterial
+        ρ::Float64
+        h::Polynomial
+
+        Solid() = new(900, Polynomial([0, 1000], :T))
+    end
+
+    enthalpy(s::Solid, T, P) = s.h(T)
+    density(s::Solid, T, P) = s.ρ
+
+    solid = Solid()
+    enthalpy(solid, 1000, 1)
+    
+    prod = StreamPipeline([Solid()])
     cool = StreamPipeline([Air()])
 
-    power = EnergyStream(100_000)
-    meal  = MaterialStream(1.0, TREF+200, PREF, [1.0], prod)
-    wind  = MaterialStream(4.0, TREF+100, PREF, [1.0], cool)
-    
-    recir = MaterialStream(0.0, TREF+100, PREF, [1.0], prod)
+    meal  = MaterialStream(1.0, 300, PREF, [1.0], prod)
+    wind  = MaterialStream(4.0, 300, PREF, [1.0], cool)
+    recir = MaterialStream(0.0, 300, PREF, [1.0], prod)
+    power = EnergyStream(500_000)
     crusher = nothing
 
-    max_iter = 3000
+    max_iter = 10
+    T_cru = zeros(max_iter)
+    T_rec = zeros(max_iter)
+    T_coo = zeros(max_iter)
+    loss = zeros(max_iter)
     
     for iter in 1:max_iter
+        global recir, crusher
+        
         the_meal = meal + recir
 
         crusher = CooledCrushingMill(;
-                verbose  = iter >= max_iter-5,
+                verbose  = false,
                 product  = the_meal,
                 coolant  = wind,
                 power    = power,
                 model    = :TARGET_COOLANT_TEMP,
-                temp_out = TREF + 150
+                temp_out = 350
         )
 
         recir = crusher.product / 2
+        
+        T_cru[iter] = the_meal.T
+        T_rec[iter] = recir.T
+        T_coo[iter] = crusher.coolant.T
+        loss[iter] = crusher.loss.ḣ / 1000
     end
 
-    crusher
+    with_theme(theme_light()) do
+        f = Figure()
+        ax = Axis(f[1, 1])
+        lines!(ax, T_cru; color = :green, label = "Meal")
+        lines!(ax, T_rec; color = :red,   label = "Recycle")
+        lines!(ax, T_coo; color = :blue,  label = "Coolant")
+        lines!(ax, loss; color = :orange, label = "Loss")
+        axislegend(ax)
+        f
+    end
 end
 
 # ╔═╡ 4f04674f-ec72-41ef-8395-8fa7bd249a94
@@ -3798,7 +3830,7 @@ version = "3.5.0+0"
 
 # ╔═╡ Cell order:
 # ╟─b7a018ef-3fb7-42b7-8765-375d9437b0b7
-# ╠═5569ce89-9a36-4dd1-acf8-f7a1a4fbf556
+# ╟─5569ce89-9a36-4dd1-acf8-f7a1a4fbf556
 # ╟─f03d3f68-27fa-4255-8cb3-c6ae4ebdb303
 # ╟─4f04674f-ec72-41ef-8395-8fa7bd249a94
 # ╟─c50940b2-bb86-4640-b333-f71874d1ab6f

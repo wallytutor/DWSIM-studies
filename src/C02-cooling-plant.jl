@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.38
+# v0.19.30
 
 using Markdown
 using InteractiveUtils
@@ -1780,106 +1780,6 @@ let
     get_results_diagram(model)
 end
 
-# ╔═╡ 61a70995-b192-45c2-bf56-d7d49f5c5dab
-@bind redoc PlutoUI.Button("Run Documentation")
-
-# ╔═╡ f50a28c1-ee29-4c03-a7cb-a7f0f7a89f90
-md"""
-### Materials
-"""
-
-# ╔═╡ 98e5e20c-21a3-46f1-bb43-e4fcb173aef2
-let redoc; @doc "" Clinker end
-
-# ╔═╡ 5dc4f8ec-3eca-4c35-ae47-0fdcc42c63e2
-let redoc; @doc "" Water end
-
-# ╔═╡ 30b7fff5-d417-4f15-9fa3-f623f288522f
-let redoc; @doc "" Air end
-
-# ╔═╡ ae42fc02-d9a0-4432-8710-4242881ad3d9
-let redoc; @doc "" StreamPipeline end
-
-# ╔═╡ 99dcc167-9819-4709-a29b-6a188ccd8005
-md"""
-### Unit operations
-"""
-
-# ╔═╡ 69827035-a90b-4b67-945b-859331d0b772
-let redoc; @doc "" MaterialStream end
-
-# ╔═╡ 4a440365-a6ee-4f68-95ba-3a842d557a99
-let redoc; @doc "" EnergyStream end
-
-# ╔═╡ 0c4161dd-43a8-4819-86aa-e8f1e4d44adc
-let redoc; @doc "" TransportPipeline end
-
-# ╔═╡ ee845e93-d778-4140-8be2-6b75b75a46e2
-let redoc; @doc "" transport_pipe end
-
-# ╔═╡ 987a1327-7c74-4629-98df-f7a1af80abfa
-let redoc; @doc "" SolidsSeparator end
-
-# ╔═╡ e5f1199b-408a-41ad-89fd-eb4f836d6704
-let redoc; @doc "" CooledCrushingMill end
-
-# ╔═╡ fe2dde3b-be3c-41fb-839f-2ac9e4426489
-let redoc; @doc "" cooled_crushing end
-
-# ╔═╡ cf37b478-26bc-4e01-bc1b-2f712eef3c66
-md"""
-### System model
-"""
-
-# ╔═╡ 4d424005-c282-4e63-9704-e892a8d7d42f
-let redoc; @doc "" CooledCrusherInputs end
-
-# ╔═╡ c5f5a18b-3b2d-4092-ac4f-5078c7b55cac
-let redoc; @doc "" CooledCrusherSolverPars end
-
-# ╔═╡ 79ca119f-818c-49cc-a855-de761dfb5be8
-let redoc; @doc "" CooledCrusherUnits end
-
-# ╔═╡ 9b5eec59-1132-4b04-8841-d8801bf09404
-let redoc; @doc "" CooledCrusherModel end
-
-# ╔═╡ d6b3e74b-bbd5-4b8b-a7bc-81c3681bdd27
-md"""
-### Functions & methods
-"""
-
-# ╔═╡ 3e63f6bf-fb4d-45b6-8f65-9c82040310bb
-let redoc; @doc "" density end
-
-# ╔═╡ e27573fa-3aa4-439c-ac2f-663612cf7ceb
-let redoc; @doc "" enthalpy end
-
-# ╔═╡ 85f3cd13-8e67-46a2-9f64-2103e20f901e
-let redoc; @doc "" enthalpyflowrate end
-
-# ╔═╡ 12a3eb03-06b5-4722-8d4a-259f2adf40dc
-let redoc; @doc "" exchanged_heat end
-
-# ╔═╡ 061700b1-a904-459d-9545-2c43d709bdf9
-let redoc; @doc "" normal_flow_rate end
-
-# ╔═╡ 2a95a7b3-bbde-49bf-96e8-2c19e7a145bc
-let redoc; @doc "" nm3h_to_kg_h end
-
-# ╔═╡ ed66faa6-092c-46b5-b519-2465405b755a
-let redoc; @doc "" kg_h_to_nm3h end
-
-# ╔═╡ a4c62e2e-004e-46f1-aa91-c95e10d76e9d
-md"""
-### Post-processing
-"""
-
-# ╔═╡ 3565e485-b361-4c50-8640-d9011adb3816
-let redoc; @doc "" report end
-
-# ╔═╡ bf0f0ccb-d327-4d11-8bcc-5d9d526a3eb1
-let redoc; @doc "" get_results_diagram end
-
 # ╔═╡ 6980e81b-b5e0-4179-9cba-9a35aa1113bb
 md"""
 ## Verifications
@@ -2034,7 +1934,7 @@ Unitful = "~1.19.0"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.1"
+julia_version = "1.9.3"
 manifest_format = "2.0"
 project_hash = "9dc21d347d4e0dafa61db1b16e09c7ab6e3076e1"
 
@@ -2287,7 +2187,7 @@ weakdeps = ["Dates", "LinearAlgebra"]
 [[deps.CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
-version = "1.1.0+0"
+version = "1.0.5+0"
 
 [[deps.CompositionsBase]]
 git-tree-sha1 = "802bb88cd69dfd1509f6670416bd4434015693ad"
@@ -2820,26 +2720,21 @@ version = "0.3.1"
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
 uuid = "b27032c2-a3e7-50c8-80cd-2d36dbcbfd21"
-version = "0.6.4"
+version = "0.6.3"
 
 [[deps.LibCURL_jll]]
 deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll", "Zlib_jll", "nghttp2_jll"]
 uuid = "deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
-version = "8.4.0+0"
+version = "7.84.0+0"
 
 [[deps.LibGit2]]
-deps = ["Base64", "LibGit2_jll", "NetworkOptions", "Printf", "SHA"]
+deps = ["Base64", "NetworkOptions", "Printf", "SHA"]
 uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
-
-[[deps.LibGit2_jll]]
-deps = ["Artifacts", "LibSSH2_jll", "Libdl", "MbedTLS_jll"]
-uuid = "e37daf67-58a4-590a-8e99-b0245dd2ffc5"
-version = "1.6.4+0"
 
 [[deps.LibSSH2_jll]]
 deps = ["Artifacts", "Libdl", "MbedTLS_jll"]
 uuid = "29816b5a-b9ab-546f-933c-edad1886dfa8"
-version = "1.11.0+1"
+version = "1.10.2+0"
 
 [[deps.Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
@@ -2992,7 +2887,7 @@ version = "0.5.7"
 [[deps.MbedTLS_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
-version = "2.28.2+1"
+version = "2.28.2+0"
 
 [[deps.Media]]
 deps = ["MacroTools", "Test"]
@@ -3022,7 +2917,7 @@ version = "0.3.4"
 
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
-version = "2023.1.10"
+version = "2022.10.11"
 
 [[deps.Multisets]]
 git-tree-sha1 = "8d852646862c96e226367ad10c8af56099b4047e"
@@ -3080,7 +2975,7 @@ version = "1.3.5+1"
 [[deps.OpenBLAS_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Libdl"]
 uuid = "4536629a-c528-5b80-bd46-f80d51c5b363"
-version = "0.3.23+4"
+version = "0.3.21+4"
 
 [[deps.OpenEXR]]
 deps = ["Colors", "FileIO", "OpenEXR_jll"]
@@ -3097,7 +2992,7 @@ version = "3.1.4+0"
 [[deps.OpenLibm_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "05823500-19ac-5b8b-9628-191a04bc5112"
-version = "0.8.1+2"
+version = "0.8.1+0"
 
 [[deps.OpenSSL_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -3131,7 +3026,7 @@ version = "1.6.3"
 [[deps.PCRE2_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "efcefdf7-47ab-520b-bdef-62a2eaa19f15"
-version = "10.42.0+1"
+version = "10.42.0+0"
 
 [[deps.PDMats]]
 deps = ["LinearAlgebra", "SparseArrays", "SuiteSparse"]
@@ -3196,7 +3091,7 @@ version = "0.42.2+0"
 [[deps.Pkg]]
 deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "Serialization", "TOML", "Tar", "UUIDs", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.10.0"
+version = "1.9.2"
 
 [[deps.PkgVersion]]
 deps = ["Pkg"]
@@ -3295,7 +3190,7 @@ deps = ["InteractiveUtils", "Markdown", "Sockets", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 
 [[deps.Random]]
-deps = ["SHA"]
+deps = ["SHA", "Serialization"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
 [[deps.RangeArrays]]
@@ -3472,7 +3367,6 @@ version = "1.2.1"
 [[deps.SparseArrays]]
 deps = ["Libdl", "LinearAlgebra", "Random", "Serialization", "SuiteSparse_jll"]
 uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
-version = "1.10.0"
 
 [[deps.SpecialFunctions]]
 deps = ["IrrationalConstants", "LogExpFunctions", "OpenLibm_jll", "OpenSpecFun_jll"]
@@ -3515,7 +3409,7 @@ version = "1.4.2"
 [[deps.Statistics]]
 deps = ["LinearAlgebra", "SparseArrays"]
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
-version = "1.10.0"
+version = "1.9.0"
 
 [[deps.StatsAPI]]
 deps = ["LinearAlgebra"]
@@ -3569,9 +3463,9 @@ deps = ["Libdl", "LinearAlgebra", "Serialization", "SparseArrays"]
 uuid = "4607b0f0-06f3-5cda-b6b1-a6196a1729e9"
 
 [[deps.SuiteSparse_jll]]
-deps = ["Artifacts", "Libdl", "libblastrampoline_jll"]
+deps = ["Artifacts", "Libdl", "Pkg", "libblastrampoline_jll"]
 uuid = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
-version = "7.2.1+1"
+version = "5.10.1+6"
 
 [[deps.TOML]]
 deps = ["Dates"]
@@ -3744,7 +3638,7 @@ version = "1.5.0+0"
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
-version = "1.2.13+1"
+version = "1.2.13+0"
 
 [[deps.Zstd_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -3779,7 +3673,7 @@ version = "0.15.1+0"
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
-version = "5.8.0+1"
+version = "5.8.0+0"
 
 [[deps.libfdk_aac_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -3808,12 +3702,12 @@ version = "1.3.7+1"
 [[deps.nghttp2_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
-version = "1.52.0+1"
+version = "1.48.0+0"
 
 [[deps.p7zip_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-version = "17.4.0+2"
+version = "17.4.0+0"
 
 [[deps.x264_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -3854,36 +3748,6 @@ version = "3.5.0+0"
 # ╟─d61e2dd1-eea2-45b7-9eca-4374d8e540ce
 # ╟─6bddbc2a-3775-4c45-a303-0c6f430d0092
 # ╟─3aec0b9b-5aa2-4f47-baf3-ac0593c5fe6d
-# ╟─61a70995-b192-45c2-bf56-d7d49f5c5dab
-# ╟─f50a28c1-ee29-4c03-a7cb-a7f0f7a89f90
-# ╟─98e5e20c-21a3-46f1-bb43-e4fcb173aef2
-# ╟─5dc4f8ec-3eca-4c35-ae47-0fdcc42c63e2
-# ╟─30b7fff5-d417-4f15-9fa3-f623f288522f
-# ╟─ae42fc02-d9a0-4432-8710-4242881ad3d9
-# ╟─99dcc167-9819-4709-a29b-6a188ccd8005
-# ╟─69827035-a90b-4b67-945b-859331d0b772
-# ╟─4a440365-a6ee-4f68-95ba-3a842d557a99
-# ╟─0c4161dd-43a8-4819-86aa-e8f1e4d44adc
-# ╟─ee845e93-d778-4140-8be2-6b75b75a46e2
-# ╟─987a1327-7c74-4629-98df-f7a1af80abfa
-# ╟─e5f1199b-408a-41ad-89fd-eb4f836d6704
-# ╟─fe2dde3b-be3c-41fb-839f-2ac9e4426489
-# ╟─cf37b478-26bc-4e01-bc1b-2f712eef3c66
-# ╟─4d424005-c282-4e63-9704-e892a8d7d42f
-# ╟─c5f5a18b-3b2d-4092-ac4f-5078c7b55cac
-# ╟─79ca119f-818c-49cc-a855-de761dfb5be8
-# ╟─9b5eec59-1132-4b04-8841-d8801bf09404
-# ╟─d6b3e74b-bbd5-4b8b-a7bc-81c3681bdd27
-# ╟─3e63f6bf-fb4d-45b6-8f65-9c82040310bb
-# ╟─e27573fa-3aa4-439c-ac2f-663612cf7ceb
-# ╟─85f3cd13-8e67-46a2-9f64-2103e20f901e
-# ╟─12a3eb03-06b5-4722-8d4a-259f2adf40dc
-# ╟─061700b1-a904-459d-9545-2c43d709bdf9
-# ╟─2a95a7b3-bbde-49bf-96e8-2c19e7a145bc
-# ╟─ed66faa6-092c-46b5-b519-2465405b755a
-# ╟─a4c62e2e-004e-46f1-aa91-c95e10d76e9d
-# ╟─3565e485-b361-4c50-8640-d9011adb3816
-# ╟─bf0f0ccb-d327-4d11-8bcc-5d9d526a3eb1
 # ╟─6980e81b-b5e0-4179-9cba-9a35aa1113bb
 # ╟─6bc03d9b-c794-434e-8453-b01316c503af
 # ╟─088a0e4d-ba74-423d-8747-5d36b1689ed1
